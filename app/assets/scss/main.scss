@@ -1,0 +1,24 @@
+@use 'tokens/index' as tokens;
+
+// Base
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap');
+
+html {
+  font-family: tokens.$app-font-family;
+}
+
+// Custom utility classes
+.app-container {
+  max-width: 1280px;
+  margin-inline: auto;
+  padding-inline: 1rem;
+}
+
+.app-section {
+  padding-block: 1.5rem;
+}
+
+.app-card {
+  border-radius: tokens.$app-radius;
+  transition: box-shadow tokens.$app-transition;
+}

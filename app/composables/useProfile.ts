@@ -1,0 +1,56 @@
+export type AppRole = 'superadmin' | 'admin' | 'member' | 'staff'
+
+export interface Profile {
+  id: string
+  email: string
+  full_name: string | null
+  avatar_url: string | null
+  role: AppRole
+  branch_id: string | null
+  status: string
+  created_at: string
+  updated_at: string
+}
+
+export function useProfile() {
+  const profileState = useState<Profile | null>('profile', () => null)
+  const user = useSupabaseUser()
+  const supabase = useSupabaseClient()
+
+  async function fetchProfile() {
+    if (!user.value?.id) {
+      profileState.value = null
+      return null
+    }
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, email, full_name, avatar_url, role, branch_id, status, created_at, updated_at')
+      .eq('id', user.value.id)
+      .single()
+    if (error) {
+      profileState.value = null
+      return null
+    }
+    profileState.value = data as Profile
+    return profileState.value
+  }
+
+  async function ensureProfile() {
+    if (profileState.value?.id === user.value?.id)
+      return profileState.value
+    return fetchProfile()
+  }
+
+  function clearProfile() {
+    profileState.value = null
+  }
+
+  const profile = readonly(profileState)
+
+  return {
+    profile,
+    fetchProfile,
+    ensureProfile,
+    clearProfile,
+  }
+}
