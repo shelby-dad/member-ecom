@@ -3,7 +3,7 @@ import { getServiceRoleClient } from '~/server/utils/supabase'
 
 export default defineEventHandler(async (event) => {
   const profile = await getProfileOrThrow(event)
-  requireRoles(profile, ['superadmin', 'admin'])
+  requireRoles(profile, ['superadmin', 'admin', 'staff'])
 
   const productId = getRouterParam(event, 'id')
   const imageId = getRouterParam(event, 'imageId')

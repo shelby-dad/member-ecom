@@ -9,7 +9,7 @@ const bodySchema = z.object({
 
 export default defineEventHandler(async (event) => {
   const profile = await getProfileOrThrow(event)
-  requireRoles(profile, ['superadmin', 'admin'])
+  requireRoles(profile, ['superadmin', 'admin', 'staff'])
 
   const id = getRouterParam(event, 'id')
   if (!id)
@@ -36,5 +36,15 @@ export default defineEventHandler(async (event) => {
 
   if (error)
     throw createError({ statusCode: 500, message: error.message })
+
+  if (data?.order_id) {
+    await supabase
+      .from('orders')
+      .update({
+        payment_status: parsed.data.status === 'verified' ? 'paid' : 'failed',
+        status: parsed.data.status === 'verified' ? 'confirmed' : 'pending',
+      })
+      .eq('id', data.order_id)
+  }
   return data
 })

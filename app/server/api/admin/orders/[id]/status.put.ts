@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { getProfileOrThrow, requireRoles } from '~/server/utils/auth'
 import { getServiceRoleClient } from '~/server/utils/supabase'
+import { applyOrderStock } from '~/server/utils/order-stock'
 
 const bodySchema = z.object({
   status: z.enum(['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled']),
@@ -8,7 +9,7 @@ const bodySchema = z.object({
 
 export default defineEventHandler(async (event) => {
   const profile = await getProfileOrThrow(event)
-  requireRoles(profile, ['superadmin', 'admin'])
+  requireRoles(profile, ['superadmin', 'admin', 'staff'])
 
   const orderId = getRouterParam(event, 'id')
   if (!orderId)
@@ -20,9 +21,52 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, message: parsed.error.message })
 
   const supabase = await getServiceRoleClient(event)
-  const { data: order } = await supabase.from('orders').select('status').eq('id', orderId).single()
+  const { data: order } = await supabase
+    .from('orders')
+    .select('status, deleted_at, stock_applied')
+    .eq('id', orderId)
+    .single()
   if (!order)
     throw createError({ statusCode: 404, message: 'Order not found' })
+  if (order.deleted_at)
+    throw createError({ statusCode: 400, message: 'Cannot update a deleted order' })
+
+  let nextStockApplied = Boolean(order.stock_applied)
+  if (parsed.data.status === 'cancelled' && order.stock_applied) {
+    const { data: items, error: itemsError } = await supabase
+      .from('order_items')
+      .select('variant_id, quantity, track_stock')
+      .eq('order_id', orderId)
+    if (itemsError)
+      throw createError({ statusCode: 500, message: itemsError.message })
+    await applyOrderStock(supabase, {
+      orderId,
+      actorId: profile.id,
+      items: (items as any[]) ?? [],
+      action: 'restore',
+    })
+    nextStockApplied = false
+  }
+  else if (order.status === 'cancelled' && parsed.data.status !== 'cancelled' && !order.stock_applied) {
+    const { data: items, error: itemsError } = await supabase
+      .from('order_items')
+      .select('variant_id, quantity, track_stock')
+      .eq('order_id', orderId)
+    if (itemsError)
+      throw createError({ statusCode: 500, message: itemsError.message })
+    try {
+      await applyOrderStock(supabase, {
+        orderId,
+        actorId: profile.id,
+        items: (items as any[]) ?? [],
+        action: 'reserve',
+      })
+      nextStockApplied = true
+    }
+    catch (e: any) {
+      throw createError({ statusCode: 409, message: e?.message ?? 'Failed to reserve stock while changing status' })
+    }
+  }
 
   await supabase.from('order_status_history').insert({
     order_id: orderId,
@@ -33,7 +77,7 @@ export default defineEventHandler(async (event) => {
 
   const { data, error } = await supabase
     .from('orders')
-    .update({ status: parsed.data.status })
+    .update({ status: parsed.data.status, stock_applied: nextStockApplied })
     .eq('id', orderId)
     .select()
     .single()

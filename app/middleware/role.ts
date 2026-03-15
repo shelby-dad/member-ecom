@@ -1,4 +1,5 @@
-import type { AppRole } from '~/composables/useProfile'
+import { resolveEffectiveRole } from '~/utils/role-switch'
+import type { AppRole } from '~/utils/role-switch'
 
 const ROLE_ROUTES: Record<AppRole, string> = {
   superadmin: '/superadmin',
@@ -9,6 +10,10 @@ const ROLE_ROUTES: Record<AppRole, string> = {
 
 const PATH_ROLES: Record<string, AppRole[]> = {
   '/superadmin': ['superadmin'],
+  '/admin/products': ['superadmin', 'admin', 'staff'],
+  '/admin/product-metadata': ['superadmin', 'admin', 'staff'],
+  '/admin/orders': ['superadmin', 'admin', 'staff'],
+  '/admin/promotions': ['superadmin', 'admin'],
   '/admin': ['superadmin', 'admin'],
   '/member': ['superadmin', 'admin', 'member', 'staff'],
   '/staff': ['superadmin', 'admin', 'staff'],
@@ -35,12 +40,16 @@ export default defineNuxtRouteMiddleware(async (to) => {
     return navigateTo('/auth/login', { replace: true })
   }
 
+  const activeRoleCookie = useCookie<AppRole | null>('active-role')
+  const effectiveRole = resolveEffectiveRole(profile.role as AppRole, activeRoleCookie.value)
+  activeRoleCookie.value = effectiveRole
+
   const requiredRoles = getRequiredRoles(to.path)
   if (!requiredRoles) return
 
-  const hasRole = requiredRoles.includes(profile.role as AppRole)
+  const hasRole = requiredRoles.includes(effectiveRole)
   if (!hasRole) {
-    const home = ROLE_ROUTES[profile.role as AppRole] ?? '/member'
+    const home = ROLE_ROUTES[effectiveRole] ?? '/member'
     return navigateTo(home, { replace: true })
   }
 })

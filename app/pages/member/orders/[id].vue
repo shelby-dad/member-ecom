@@ -54,6 +54,7 @@
 
 <script setup lang="ts">
 definePageMeta({ layout: 'member', middleware: 'role' })
+const { formatPrice } = usePricingFormat()
 
 const route = useRoute()
 const id = route.params.id as string
@@ -68,9 +69,6 @@ const snackSuccess = ref(false)
 const snackMsg = ref('')
 const submission = reactive({ payment_method_id: '', transaction_id: '' })
 
-function formatPrice(n: number) {
-  return new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB' }).format(n)
-}
 function formatDate(d: string) {
   return new Date(d).toLocaleDateString()
 }

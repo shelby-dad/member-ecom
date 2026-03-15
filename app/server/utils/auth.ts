@@ -1,9 +1,10 @@
-import type { H3Event } from 'h3'
+import { getCookie, type H3Event } from 'h3'
 import { serverSupabaseUser, serverSupabaseClient } from '#supabase/server'
+import { resolveEffectiveRole, type AppRole } from '~/utils/role-switch'
 
-export type AppRole = 'superadmin' | 'admin' | 'member' | 'staff'
+export type { AppRole }
 
-export async function getProfileOrThrow(event: H3Event): Promise<{ id: string; role: string }> {
+export async function getProfileOrThrow(event: H3Event): Promise<{ id: string; role: AppRole; baseRole: AppRole }> {
   const user = await serverSupabaseUser(event)
   if (!user?.id)
     throw createError({ statusCode: 401, message: 'Unauthorized' })
@@ -15,7 +16,12 @@ export async function getProfileOrThrow(event: H3Event): Promise<{ id: string; r
     .single()
   if (error || !data)
     throw createError({ statusCode: 403, message: 'Forbidden' })
-  return data as { id: string; role: string }
+
+  const baseRole = data.role as AppRole
+  const requestedRole = getCookie(event, 'active-role')
+  const role = resolveEffectiveRole(baseRole, requestedRole)
+
+  return { id: data.id, role, baseRole }
 }
 
 export function requireRoles(profile: { role: string }, allowed: AppRole[]) {

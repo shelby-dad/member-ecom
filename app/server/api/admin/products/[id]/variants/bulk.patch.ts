@@ -8,12 +8,13 @@ const bodySchema = z.object({
     variant_id: z.string().uuid(),
     price: z.number().min(0).optional(),
     stock: z.number().int().min(0).optional(),
+    track_stock: z.boolean().optional(),
   })),
 })
 
 export default defineEventHandler(async (event) => {
   const profile = await getProfileOrThrow(event)
-  requireRoles(profile, ['superadmin', 'admin'])
+  requireRoles(profile, ['superadmin', 'admin', 'staff'])
 
   const productId = getRouterParam(event, 'id')
   if (!productId)
@@ -31,9 +32,21 @@ export default defineEventHandler(async (event) => {
 
   for (const u of parsed.data.updates) {
     if (u.price !== undefined) {
+      const variantUpdates: Record<string, unknown> = { price: u.price }
+      if (u.track_stock !== undefined)
+        variantUpdates.track_stock = u.track_stock
       const { error } = await supabase
         .from('product_variants')
-        .update({ price: u.price })
+        .update(variantUpdates)
+        .eq('id', u.variant_id)
+        .eq('product_id', productId)
+      if (error)
+        throw createError({ statusCode: 500, message: error.message })
+    }
+    else if (u.track_stock !== undefined) {
+      const { error } = await supabase
+        .from('product_variants')
+        .update({ track_stock: u.track_stock })
         .eq('id', u.variant_id)
         .eq('product_id', productId)
       if (error)

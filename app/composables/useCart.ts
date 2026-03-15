@@ -6,9 +6,8 @@ export interface CartItem {
   quantity: number
 }
 
-const cartState = useState<CartItem[]>('cart', () => [])
-
 export function useCart() {
+  const cartState = useState<CartItem[]>('cart', () => [])
   const items = computed(() => cartState.value)
 
   const total = computed(() =>

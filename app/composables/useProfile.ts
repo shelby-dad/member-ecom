@@ -1,4 +1,4 @@
-export type AppRole = 'superadmin' | 'admin' | 'member' | 'staff'
+import type { AppRole } from '~/utils/role-switch'
 
 export interface Profile {
   id: string
@@ -8,6 +8,7 @@ export interface Profile {
   role: AppRole
   branch_id: string | null
   status: string
+  wallet_balance: number
   created_at: string
   updated_at: string
 }
@@ -24,7 +25,7 @@ export function useProfile() {
     }
     const { data, error } = await supabase
       .from('profiles')
-      .select('id, email, full_name, avatar_url, role, branch_id, status, created_at, updated_at')
+      .select('id, email, full_name, avatar_url, role, branch_id, status, wallet_balance, created_at, updated_at')
       .eq('id', user.value.id)
       .single()
     if (error) {

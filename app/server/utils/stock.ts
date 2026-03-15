@@ -2,14 +2,25 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 /** Ensure one stock row exists for variant (branch_id NULL). Idempotent; only inserts when missing. */
 export async function ensureStockRow(supabase: SupabaseClient, variantId: string, initialQuantity = 0) {
-  const { data: existing } = await supabase
+  const { data: existing, error: existingError } = await supabase
     .from('stock')
-    .select('id')
+    .select('id, quantity')
     .eq('variant_id', variantId)
     .is('branch_id', null)
-    .limit(1)
-    .maybeSingle()
-  if (existing) return
+  if (existingError) throw existingError
+
+  const rows = existing ?? []
+  if (rows.length === 1) return
+  if (rows.length > 1) {
+    const totalQty = rows.reduce((sum: number, row: any) => sum + Number(row.quantity ?? 0), 0)
+    const keeper = rows[0]
+    await supabase.from('stock').update({ quantity: totalQty }).eq('id', keeper.id)
+    const duplicateIds = rows.slice(1).map((r: any) => r.id)
+    if (duplicateIds.length)
+      await supabase.from('stock').delete().in('id', duplicateIds)
+    return
+  }
+
   const { error } = await supabase.from('stock').insert({
     variant_id: variantId,
     branch_id: null,
@@ -26,18 +37,27 @@ export async function setStock(
   branchId: string | null = null,
   userId?: string,
 ) {
-  const { data: existing } = await supabase
+  const { data: rows, error: existingError } = await supabase
     .from('stock')
     .select('id, quantity')
     .eq('variant_id', variantId)
     .is('branch_id', branchId)
-    .single()
+  if (existingError) throw existingError
+  const existingRows = rows ?? []
+  const existing = existingRows[0]
 
-  const { error: upsertError } = await supabase.from('stock').upsert(
-    { variant_id: variantId, branch_id: branchId, quantity },
-    { onConflict: 'variant_id,branch_id' },
-  )
-  if (upsertError) throw upsertError
+  if (existing) {
+    const { error: updateError } = await supabase.from('stock').update({ quantity }).eq('id', existing.id)
+    if (updateError) throw updateError
+    const duplicateIds = existingRows.slice(1).map((r: any) => r.id)
+    if (duplicateIds.length)
+      await supabase.from('stock').delete().in('id', duplicateIds)
+  } else {
+    const { error: insertError } = await supabase.from('stock').insert(
+      { variant_id: variantId, branch_id: branchId, quantity },
+    )
+    if (insertError) throw insertError
+  }
 
   if (userId && existing != null && existing.quantity !== quantity) {
     const delta = quantity - (existing.quantity ?? 0)

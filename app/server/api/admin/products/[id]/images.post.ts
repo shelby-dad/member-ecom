@@ -11,7 +11,7 @@ const bodySchema = z.object({
 
 export default defineEventHandler(async (event) => {
   const profile = await getProfileOrThrow(event)
-  requireRoles(profile, ['superadmin', 'admin'])
+  requireRoles(profile, ['superadmin', 'admin', 'staff'])
 
   const productId = getRouterParam(event, 'id')
   if (!productId)

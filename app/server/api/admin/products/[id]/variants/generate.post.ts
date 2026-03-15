@@ -1,31 +1,39 @@
 import { z } from 'zod'
 import { getProfileOrThrow, requireRoles } from '~/server/utils/auth'
 import { getServiceRoleClient } from '~/server/utils/supabase'
-import { generateOptionCombinations, optionValuesToName } from '~/server/utils/product-variants'
+import { generateOptionCombinations, generateVariantSku, normalizeOptionSets, optionValuesToName } from '~/server/utils/product-variants'
 import { ensureStockRow } from '~/server/utils/stock'
 
 const bodySchema = z.object({
-  option_sets: z.array(z.object({ name: z.string().min(1), values: z.array(z.string().min(1)).min(1) })).optional(),
+  option_sets: z.array(z.object({
+    name: z.string().min(1),
+    type: z.enum(['text', 'image', 'color']).optional(),
+    values: z.array(z.union([
+      z.string().min(1),
+      z.object({ label: z.string().min(1), value: z.string().min(1) }),
+    ])).min(1),
+  })).optional(),
 }).optional()
 
 export default defineEventHandler(async (event) => {
   const profile = await getProfileOrThrow(event)
-  requireRoles(profile, ['superadmin', 'admin'])
+  requireRoles(profile, ['superadmin', 'admin', 'staff'])
 
   const productId = getRouterParam(event, 'id')
   if (!productId)
     throw createError({ statusCode: 400, message: 'Missing product id' })
 
   const supabase = await getServiceRoleClient(event)
-  const { data: product } = await supabase.from('products').select('option_sets').eq('id', productId).single()
+  const { data: product } = await supabase.from('products').select('option_sets, slug, track_stock').eq('id', productId).single()
   if (!product)
     throw createError({ statusCode: 404, message: 'Product not found' })
 
   const body = await readBody(event).catch(() => ({}))
   const parsed = bodySchema.safeParse(body)
-  const optionSets = parsed.success && parsed.data?.option_sets?.length
+  const optionSetsRaw = parsed.success && parsed.data?.option_sets?.length
     ? parsed.data.option_sets
     : (product.option_sets as Array<{ name: string; values: string[] }>) ?? []
+  const optionSets = normalizeOptionSets(optionSetsRaw as any)
 
   if (optionSets.length === 0)
     throw createError({ statusCode: 400, message: 'No option_sets to generate variants' })
@@ -50,7 +58,9 @@ export default defineEventHandler(async (event) => {
       .insert({
         product_id: productId,
         name,
+        sku: generateVariantSku(product.slug, optionValues),
         price: 0,
+        track_stock: product.track_stock ?? true,
         option_values: optionValues,
         sort_order: sortOrder++,
       })

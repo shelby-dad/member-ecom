@@ -7,6 +7,10 @@ html {
   font-family: tokens.$app-font-family;
 }
 
+body {
+  background: linear-gradient(155deg, #eef4ff 0%, #f7fbff 45%, #f3f8f7 100%);
+}
+
 // Custom utility classes
 .app-container {
   max-width: 1280px;
@@ -21,4 +25,68 @@ html {
 .app-card {
   border-radius: tokens.$app-radius;
   transition: box-shadow tokens.$app-transition;
+  box-shadow: 0 10px 24px rgba(17, 24, 39, 0.06);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.app-shell {
+  --shell-border: rgba(148, 163, 184, 0.24);
+  --shell-hover: rgba(15, 111, 255, 0.08);
+  --shell-active: rgba(15, 111, 255, 0.16);
+}
+
+.v-theme--dark .app-shell {
+  --shell-border: rgba(100, 116, 139, 0.35);
+  --shell-hover: rgba(96, 165, 250, 0.16);
+  --shell-active: rgba(96, 165, 250, 0.24);
+}
+
+.app-shell-drawer {
+  border-right: 1px solid var(--shell-border) !important;
+  backdrop-filter: blur(8px);
+}
+
+.app-shell-brand-link {
+  color: rgb(var(--v-theme-primary));
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-decoration: none;
+}
+
+.app-shell-bar {
+  border-bottom: 1px solid var(--shell-border);
+  backdrop-filter: blur(8px);
+  background: color-mix(in srgb, rgb(var(--v-theme-surface)) 78%, transparent) !important;
+}
+
+.app-shell-main {
+  position: relative;
+}
+
+.app-shell-glow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 12% 10%, rgba(59, 130, 246, 0.13), transparent 28%),
+    radial-gradient(circle at 90% 90%, rgba(14, 116, 144, 0.12), transparent 26%);
+}
+
+.app-shell-nav .v-list-item {
+  transition: background-color tokens.$app-transition, transform tokens.$app-transition;
+}
+
+.app-shell-nav .v-list-item:hover {
+  background: var(--shell-hover);
+  transform: translateX(2px);
+}
+
+.app-shell-nav .v-list-item--active {
+  background: var(--shell-active);
+  color: rgb(var(--v-theme-primary));
+}
+
+.app-shell-nav .v-list-item--active .v-icon {
+  color: rgb(var(--v-theme-primary));
 }

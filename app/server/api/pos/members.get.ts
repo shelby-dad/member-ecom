@@ -8,7 +8,7 @@ export default defineEventHandler(async (event) => {
   const supabase = await getServiceRoleClient(event)
   const { data, error } = await supabase
     .from('profiles')
-    .select('id, email, full_name')
+    .select('id, email, full_name, wallet_balance')
     .eq('role', 'member')
     .eq('status', 'active')
     .order('email')

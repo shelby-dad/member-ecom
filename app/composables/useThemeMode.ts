@@ -1,6 +1,5 @@
 import { useTheme } from 'vuetify'
-
-type ThemeMode = 'light' | 'dark' | 'system'
+import { resolveThemeName, type ThemeMode } from '~/composables/themeMode'
 
 const COOKIE_NAME = 'app-theme'
 
@@ -10,19 +9,14 @@ export function useThemeMode() {
   const hasMounted = useState('theme-mounted', () => false)
   const vuetifyTheme = useTheme()
 
-  function getSystemTheme(): 'light' | 'dark' {
+  function prefersDark(): boolean {
     if (import.meta.client && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches)
-      return 'dark'
-    return 'light'
+      return true
+    return false
   }
 
-  function resolveTheme(): string {
-    const mode = colorMode.value
-    if (mode === 'dark') return 'dark'
-    if (mode === 'light') return 'light'
-    if (!hasMounted.value)
-      return 'light'
-    return getSystemTheme()
+  function resolveTheme(): 'light' | 'dark' {
+    return resolveThemeName(colorMode.value, hasMounted.value, prefersDark())
   }
 
   function applyTheme(theme: string) {
@@ -39,10 +33,13 @@ export function useThemeMode() {
     onMounted(() => {
       hasMounted.value = true
       applyTheme(resolveTheme())
-      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+      const media = window.matchMedia('(prefers-color-scheme: dark)')
+      const onChange = () => {
         if (colorMode.value === 'system')
-          applyTheme(getSystemTheme())
-      })
+          applyTheme(resolveTheme())
+      }
+      media.addEventListener('change', onChange)
+      onBeforeUnmount(() => media.removeEventListener('change', onChange))
     })
   }
 

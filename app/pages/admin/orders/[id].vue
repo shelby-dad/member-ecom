@@ -13,6 +13,9 @@
           variant="outlined"
           @update:model-value="updateStatus"
         />
+        <v-btn color="error" variant="outlined" class="mt-3" :loading="deleting" @click="showDeleteDialog = true">
+          Delete order
+        </v-btn>
       </v-card-text>
     </v-card>
     <v-card class="mb-4">
@@ -65,6 +68,19 @@
         </tbody>
       </v-table>
     </v-card>
+    <v-dialog v-model="showDeleteDialog" max-width="520">
+      <v-card>
+        <v-card-title>Confirm order deletion</v-card-title>
+        <v-card-text>
+          This is a soft delete. Order <strong>{{ order.order_number }}</strong> will be marked deleted and removed from order screens.
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" :disabled="deleting" @click="showDeleteDialog = false">Cancel</v-btn>
+          <v-btn color="error" :loading="deleting" @click="deleteOrder">Confirm delete</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
   <div v-else class="text-center py-8">
     <v-progress-circular indeterminate />
@@ -73,6 +89,7 @@
 
 <script setup lang="ts">
 definePageMeta({ layout: 'admin', middleware: 'role' })
+const { formatPrice } = usePricingFormat()
 
 const route = useRoute()
 const id = route.params.id as string
@@ -80,19 +97,36 @@ const supabase = useSupabaseClient()
 const order = ref<any>(null)
 const orderItems = ref<any[]>([])
 const submissions = ref<any[]>([])
-
-function formatPrice(n: number) {
-  return new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB' }).format(n)
-}
+const showDeleteDialog = ref(false)
+const deleting = ref(false)
 
 async function load() {
-  const { data: o } = await supabase.from('orders').select('*').eq('id', id).single()
+  const softDeleteQuery = await supabase
+    .from('orders')
+    .select('*')
+    .eq('id', id)
+    .is('deleted_at', null)
+    .single()
+
+  let o = softDeleteQuery.data
+  if (softDeleteQuery.error?.message.includes('deleted_at')) {
+    const legacyQuery = await supabase
+      .from('orders')
+      .select('*')
+      .eq('id', id)
+      .single()
+    o = legacyQuery.data
+  }
+
   order.value = o ?? null
   if (o) {
     const { data: items } = await supabase.from('order_items').select('*').eq('order_id', id)
     orderItems.value = items ?? []
     const { data: sub } = await supabase.from('payment_submissions').select('*').eq('order_id', id)
     submissions.value = sub ?? []
+  }
+  else {
+    await navigateTo('/admin/orders', { replace: true })
   }
 }
 
@@ -104,6 +138,19 @@ async function updateStatus() {
 async function verify(subId: string, status: 'verified' | 'rejected') {
   await $fetch(`/api/admin/payment-submissions/${subId}/verify`, { method: 'PUT', body: { status } })
   await load()
+}
+
+async function deleteOrder() {
+  if (!order.value) return
+  deleting.value = true
+  try {
+    await $fetch(`/api/admin/orders/${id}`, { method: 'DELETE' })
+    await navigateTo('/admin/orders', { replace: true })
+  }
+  finally {
+    deleting.value = false
+    showDeleteDialog.value = false
+  }
 }
 
 onMounted(load)

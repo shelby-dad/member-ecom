@@ -35,14 +35,12 @@
 
 <script setup lang="ts">
 definePageMeta({ layout: 'member', middleware: 'role' })
+const { formatPrice } = usePricingFormat()
 
 const supabase = useSupabaseClient()
 const user = useSupabaseUser()
 const orders = ref<any[]>([])
 
-function formatPrice(n: number) {
-  return new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB' }).format(n)
-}
 function formatDate(d: string) {
   return new Date(d).toLocaleDateString()
 }

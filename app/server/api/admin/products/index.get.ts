@@ -3,10 +3,14 @@ import { getServiceRoleClient } from '~/server/utils/supabase'
 
 export default defineEventHandler(async (event) => {
   const profile = await getProfileOrThrow(event)
-  requireRoles(profile, ['superadmin', 'admin'])
+  requireRoles(profile, ['superadmin', 'admin', 'staff'])
 
   const supabase = await getServiceRoleClient(event)
-  const { data: products, error } = await supabase.from('products').select('*').order('created_at', { ascending: false })
+  let query = supabase.from('products').select('*').order('created_at', { ascending: false })
+  if (profile.role !== 'superadmin')
+    query = query.eq('is_active', true)
+
+  const { data: products, error } = await query
   if (error)
     throw createError({ statusCode: 500, message: error.message })
 

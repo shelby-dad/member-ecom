@@ -4,8 +4,9 @@ import { getServiceRoleClient } from '~/server/utils/supabase'
 
 const bodySchema = z.object({
   name: z.string().min(1),
-  account_name: z.string().min(1),
-  account_number: z.string().min(1),
+  type: z.enum(['wallet', 'bank_transfer', 'cash', 'cod']),
+  account_name: z.string().optional(),
+  account_number: z.string().optional(),
   bank_name: z.string().optional(),
   is_active: z.boolean().optional().default(true),
   sort_order: z.number().int().optional().default(0),
@@ -19,14 +20,18 @@ export default defineEventHandler(async (event) => {
   const parsed = bodySchema.safeParse(body)
   if (!parsed.success)
     throw createError({ statusCode: 400, message: parsed.error.message })
+  if (parsed.data.type === 'bank_transfer' && (!parsed.data.account_name?.trim() || !parsed.data.account_number?.trim())) {
+    throw createError({ statusCode: 400, message: 'Account name and account number are required for bank transfer.' })
+  }
 
   const supabase = await getServiceRoleClient(event)
   const { data, error } = await supabase
     .from('payment_methods')
     .insert({
       name: parsed.data.name,
-      account_name: parsed.data.account_name,
-      account_number: parsed.data.account_number,
+      type: parsed.data.type,
+      account_name: parsed.data.account_name?.trim() || null,
+      account_number: parsed.data.account_number?.trim() || null,
       bank_name: parsed.data.bank_name ?? null,
       is_active: parsed.data.is_active,
       sort_order: parsed.data.sort_order,
