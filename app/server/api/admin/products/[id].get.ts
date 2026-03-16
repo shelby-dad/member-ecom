@@ -29,11 +29,7 @@ export default defineEventHandler(async (event) => {
 
   const stockByVariant: Record<string, number> = {}
   for (const row of stockRows ?? []) {
-    if (row.branch_id == null)
-      stockByVariant[row.variant_id] = row.quantity
-    else if (stockByVariant[row.variant_id] == null)
-      stockByVariant[row.variant_id] = 0
-    stockByVariant[row.variant_id] += row.quantity
+    stockByVariant[row.variant_id] = (stockByVariant[row.variant_id] ?? 0) + Number(row.quantity ?? 0)
   }
 
   const variantsWithStock = (variants ?? []).map((v: any) => ({

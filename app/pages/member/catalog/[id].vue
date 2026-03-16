@@ -35,9 +35,7 @@
         </v-slide-group-item>
       </v-slide-group>
     </div>
-    <p class="text-body-1 text-medium-emphasis mb-4">
-      {{ product.description || 'No description' }}
-    </p>
+    <div class="text-body-1 text-medium-emphasis mb-4 product-description" v-html="renderDescription(product.description)" />
     <v-card class="mb-4">
       <v-card-title>Variants</v-card-title>
       <v-table>
@@ -125,6 +123,12 @@ function optionSetImagePaths(optionSets: any): string[] {
 function imageUrl(path: string) {
   const base = config.public.supabaseUrl as string
   return base ? `${base}/storage/v1/object/public/product-images/${path}` : path
+}
+
+function renderDescription(value: string | null | undefined) {
+  if (isRichTextEmpty(value))
+    return '<p>No description</p>'
+  return sanitizeRichText(value)
 }
 
 function addToCart(v: any) {
@@ -265,5 +269,18 @@ onMounted(load)
   justify-content: center;
   color: rgba(71, 85, 105, 0.9);
   font-size: 0.9rem;
+}
+
+.product-description :deep(p) {
+  margin: 0 0 0.5rem;
+}
+
+.product-description :deep(p:last-child) {
+  margin-bottom: 0;
+}
+
+.product-description :deep(a) {
+  color: rgb(var(--v-theme-primary));
+  text-decoration: underline;
 }
 </style>

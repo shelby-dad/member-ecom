@@ -27,8 +27,12 @@ export function useProfile() {
       .from('profiles')
       .select('id, email, full_name, avatar_url, role, branch_id, status, wallet_balance, created_at, updated_at')
       .eq('id', user.value.id)
-      .single()
+      .maybeSingle()
     if (error) {
+      profileState.value = null
+      return null
+    }
+    if (!data) {
       profileState.value = null
       return null
     }

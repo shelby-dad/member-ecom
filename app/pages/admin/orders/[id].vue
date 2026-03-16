@@ -13,7 +13,18 @@
           variant="outlined"
           @update:model-value="updateStatus"
         />
-        <v-btn color="error" variant="outlined" class="mt-3" :loading="deleting" @click="showDeleteDialog = true">
+        <div v-if="order.estimate_delivery_start || order.estimate_delivery_end" class="text-body-2 mt-2">
+          <strong>Estimate delivery:</strong>
+          {{ formatEstimateRange(order.estimate_delivery_start, order.estimate_delivery_end) }}
+        </div>
+        <v-btn
+          v-if="canDeleteOrder"
+          color="error"
+          variant="outlined"
+          class="mt-3"
+          :loading="deleting"
+          @click="showDeleteDialog = true"
+        >
           Delete order
         </v-btn>
       </v-card-text>
@@ -99,6 +110,7 @@ const orderItems = ref<any[]>([])
 const submissions = ref<any[]>([])
 const showDeleteDialog = ref(false)
 const deleting = ref(false)
+const canDeleteOrder = ref(false)
 
 async function load() {
   const softDeleteQuery = await supabase
@@ -135,6 +147,21 @@ async function updateStatus() {
   await $fetch(`/api/admin/orders/${id}/status`, { method: 'PUT', body: { status: order.value.status } })
 }
 
+function formatEstimateRange(start: string | null | undefined, end: string | null | undefined) {
+  const fmt = (v: string) => new Intl.DateTimeFormat('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+  }).format(new Date(v))
+  if (start && end)
+    return `${fmt(start)} - ${fmt(end)}`
+  if (start)
+    return fmt(start)
+  if (end)
+    return fmt(end)
+  return '-'
+}
+
 async function verify(subId: string, status: 'verified' | 'rejected') {
   await $fetch(`/api/admin/payment-submissions/${subId}/verify`, { method: 'PUT', body: { status } })
   await load()
@@ -153,5 +180,9 @@ async function deleteOrder() {
   }
 }
 
-onMounted(load)
+onMounted(async () => {
+  const profile = await useProfile().ensureProfile()
+  canDeleteOrder.value = profile?.role === 'superadmin'
+  await load()
+})
 </script>

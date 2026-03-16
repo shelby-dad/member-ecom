@@ -67,6 +67,19 @@
             {{ item.status }}
           </v-chip>
         </template>
+        <template #item.email="{ item }">
+          <div class="d-flex align-center ga-1">
+            <span>{{ item.email }}</span>
+            <v-btn
+              v-if="canManageUser(item)"
+              size="x-small"
+              variant="text"
+              icon="mdi-email-edit-outline"
+              :title="'Edit user'"
+              @click="openEditDialog(item)"
+            />
+          </div>
+        </template>
         <template #item.created_at="{ item }">
           {{ formatDate(item.created_at) }}
         </template>
@@ -74,12 +87,67 @@
           {{ Number(item.wallet_balance ?? 0).toFixed(2) }}
         </template>
         <template #item.actions="{ item }">
-          <v-btn v-if="actorRole === 'superadmin'" size="x-small" variant="text" @click="openWalletDialog(item)">
-            Update wallet
-          </v-btn>
+          <v-btn
+            v-if="canActOnBehalf(item)"
+            size="x-small"
+            variant="text"
+            icon="mdi-account-switch"
+            :title="'Sign in on behalf'"
+            @click="signInOnBehalf(item)"
+          />
+          <v-btn
+            v-if="actorRole === 'superadmin'"
+            size="x-small"
+            variant="text"
+            icon="mdi-wallet"
+            :title="'Update wallet'"
+            @click="openWalletDialog(item)"
+          />
         </template>
       </v-data-table-server>
     </v-card>
+
+    <v-dialog v-model="showEditDialog" max-width="520">
+      <v-card>
+        <v-card-title>Edit user</v-card-title>
+        <v-card-text>
+          <p class="text-caption text-medium-emphasis mb-2">
+            {{ editTarget?.email }}
+          </p>
+          <v-text-field v-model="editForm.full_name" label="Full name" variant="outlined" class="mb-2" />
+          <v-text-field v-model="editForm.email" label="Email" type="email" variant="outlined" class="mb-2" />
+          <v-text-field
+            v-model="editForm.password"
+            label="Password (optional)"
+            type="password"
+            variant="outlined"
+            hint="Leave empty to keep current password."
+            persistent-hint
+            class="mb-2"
+          />
+          <v-select
+            v-model="editForm.role"
+            :items="roleOptions"
+            label="Role"
+            variant="outlined"
+            density="comfortable"
+            class="mb-2"
+          />
+          <v-select
+            v-model="editForm.status"
+            :items="statusOptions"
+            label="Status"
+            variant="outlined"
+            density="comfortable"
+          />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="showEditDialog = false">Cancel</v-btn>
+          <v-btn color="primary" :loading="editing" @click="saveEdit">Save</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <v-dialog v-model="showWalletDialog" max-width="420">
       <v-card>
@@ -143,6 +211,7 @@ const users = ref<UserRow[]>([])
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 
 const actorRole = ref<'superadmin' | 'admin' | null>(null)
+const actorId = ref<string | null>(null)
 const roleOptions = computed(() => {
   if (actorRole.value === 'superadmin')
     return ['admin', 'staff', 'member']
@@ -159,6 +228,16 @@ const form = reactive({
 })
 
 const creating = ref(false)
+const showEditDialog = ref(false)
+const editing = ref(false)
+const editTarget = ref<UserRow | null>(null)
+const editForm = reactive({
+  full_name: '',
+  email: '',
+  password: '',
+  role: 'staff',
+  status: 'active',
+})
 const showWalletDialog = ref(false)
 const walletSaving = ref(false)
 const walletTarget = ref<UserRow | null>(null)
@@ -169,6 +248,18 @@ function showToast(message: string, color: 'success' | 'error') {
   snackbar.show = true
   snackbar.message = message
   snackbar.color = color
+}
+
+function canManageUser(user: UserRow) {
+  return roleOptions.value.includes(user.role)
+}
+
+function canActOnBehalf(user: UserRow) {
+  if (actorRole.value !== 'superadmin')
+    return false
+  if (!user?.id || user.id === actorId.value)
+    return false
+  return user.role !== 'superadmin'
 }
 
 function formatDate(value: string) {
@@ -205,8 +296,8 @@ async function loadUsers() {
 }
 
 async function createUser() {
-  if (!form.email || !form.password || !form.role) {
-    showToast('Email, password and role are required.', 'error')
+  if (!form.full_name.trim() || !form.email || !form.password || !form.role) {
+    showToast('Full name, email, password and role are required.', 'error')
     return
   }
 
@@ -217,7 +308,7 @@ async function createUser() {
       body: {
         email: form.email,
         password: form.password,
-        full_name: form.full_name || undefined,
+        full_name: form.full_name.trim(),
         role: form.role,
         status: form.status,
       },
@@ -236,6 +327,68 @@ async function createUser() {
   }
   finally {
     creating.value = false
+  }
+}
+
+function openEditDialog(user: UserRow) {
+  if (!canManageUser(user)) {
+    showToast('You cannot manage this user role.', 'error')
+    return
+  }
+  editTarget.value = user
+  editForm.full_name = user.full_name ?? ''
+  editForm.email = user.email
+  editForm.password = ''
+  editForm.role = user.role
+  editForm.status = user.status
+  showEditDialog.value = true
+}
+
+async function saveEdit() {
+  if (!editTarget.value)
+    return
+  if (!editForm.email.trim()) {
+    showToast('Email is required.', 'error')
+    return
+  }
+
+  editing.value = true
+  try {
+    const body: Record<string, unknown> = {
+      email: editForm.email.trim(),
+      full_name: editForm.full_name.trim() || null,
+      role: editForm.role,
+      status: editForm.status,
+    }
+    if (editForm.password.trim())
+      body.password = editForm.password.trim()
+
+    await $fetch(`/api/admin/users/${editTarget.value.id}`, { method: 'PUT', body })
+    showEditDialog.value = false
+    await loadUsers()
+    showToast('User updated.', 'success')
+  }
+  catch (e: any) {
+    showToast(e?.data?.message ?? e?.message ?? 'Failed to update user.', 'error')
+  }
+  finally {
+    editing.value = false
+  }
+}
+
+async function signInOnBehalf(user: UserRow) {
+  if (!canActOnBehalf(user))
+    return
+  try {
+    await $fetch('/api/auth/on-behalf', {
+      method: 'PUT',
+      body: { user_id: user.id },
+    })
+    const home = user.role === 'staff' ? '/staff' : user.role === 'member' ? '/member' : '/admin'
+    await navigateTo(home, { replace: true })
+  }
+  catch (e: any) {
+    showToast(e?.data?.message ?? e?.message ?? 'Failed to sign in on behalf.', 'error')
   }
 }
 
@@ -285,6 +438,7 @@ onBeforeUnmount(() => {
 
 onMounted(async () => {
   const profile = await useProfile().ensureProfile()
+  actorId.value = profile?.id ?? null
   actorRole.value = (profile?.role === 'superadmin' || profile?.role === 'admin') ? profile.role : 'admin'
   form.role = roleOptions.value[0] ?? 'staff'
   await loadUsers()

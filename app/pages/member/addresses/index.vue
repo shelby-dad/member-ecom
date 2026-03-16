@@ -53,8 +53,6 @@
 <script setup lang="ts">
 definePageMeta({ layout: 'member', middleware: 'role' })
 
-const supabase = useSupabaseClient()
-const user = useSupabaseUser()
 const addresses = ref<any[]>([])
 const showForm = ref(false)
 const editingId = ref<string | null>(null)
@@ -82,8 +80,7 @@ function resetForm() {
 }
 
 async function load() {
-  if (!user.value?.id) return
-  const { data } = await supabase.from('addresses').select('*').eq('user_id', user.value.id).order('is_default', { ascending: false })
+  const data = await $fetch<any[]>('/api/member/addresses')
   addresses.value = data ?? []
 }
 
@@ -101,24 +98,27 @@ function edit(a: any) {
 }
 
 async function save() {
-  if (!user.value?.id) return
   saving.value = true
   try {
     if (editingId.value) {
-      await (supabase.from('addresses') as any).update({
-        label: form.label || null,
-        line1: form.line1,
-        line2: form.line2 || null,
-        city: form.city,
-        state: form.state || null,
-        postal_code: form.postal_code || null,
-        country: form.country,
-        is_default: form.is_default,
-      }).eq('id', editingId.value).eq('user_id', user.value.id)
+      await $fetch(`/api/member/addresses/${editingId.value}`, {
+        method: 'PUT',
+        body: {
+          label: form.label || null,
+          line1: form.line1,
+          line2: form.line2 || null,
+          city: form.city,
+          state: form.state || null,
+          postal_code: form.postal_code || null,
+          country: form.country,
+          is_default: form.is_default,
+        },
+      })
     }
     else {
-      await supabase.from('addresses').insert({
-        user_id: user.value.id,
+      await $fetch('/api/member/addresses', {
+        method: 'POST',
+        body: {
         label: form.label || null,
         line1: form.line1,
         line2: form.line2 || null,
@@ -127,7 +127,8 @@ async function save() {
         postal_code: form.postal_code || null,
         country: form.country,
         is_default: form.is_default,
-      } as any)
+        },
+      })
     }
     showForm.value = false
     editingId.value = null
@@ -140,8 +141,7 @@ async function save() {
 }
 
 async function remove(id: string) {
-  if (!user.value?.id) return
-  await supabase.from('addresses').delete().eq('id', id).eq('user_id', user.value.id)
+  await $fetch(`/api/member/addresses/${id}`, { method: 'DELETE' })
   await load()
 }
 

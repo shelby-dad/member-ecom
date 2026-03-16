@@ -6,6 +6,9 @@
     <v-card class="mb-4">
       <v-card-text>
         <p><strong>Status:</strong> {{ order.status }}</p>
+        <p><strong>Payment method:</strong> {{ formatPaymentMethod(order.payment_method_type) }}</p>
+        <p><strong>Payment status:</strong> {{ formatTextOrDash(order.payment_status) }}</p>
+        <p><strong>Estimate delivery:</strong> {{ formatEstimateRange(order.estimate_delivery_start, order.estimate_delivery_end) }}</p>
         <p><strong>Total:</strong> {{ formatPrice(order.total) }}</p>
         <p><strong>Date:</strong> {{ formatDate(order.created_at) }}</p>
       </v-card-text>
@@ -58,8 +61,6 @@ const { formatPrice } = usePricingFormat()
 
 const route = useRoute()
 const id = route.params.id as string
-const supabase = useSupabaseClient()
-const user = useSupabaseUser()
 const order = ref<any>(null)
 const orderItems = ref<any[]>([])
 const paymentMethods = ref<any[]>([])
@@ -73,32 +74,52 @@ function formatDate(d: string) {
   return new Date(d).toLocaleDateString()
 }
 
+function formatTextOrDash(value: string | null | undefined) {
+  return value ? value : '-'
+}
+
+function formatPaymentMethod(value: string | null | undefined) {
+  if (!value) return '-'
+  if (value === 'bank_transfer') return 'Bank Transfer'
+  if (value === 'cod') return 'Cash on Delivery'
+  if (value === 'wallet') return 'Wallet'
+  return value
+}
+
+function formatEstimateRange(start: string | null | undefined, end: string | null | undefined) {
+  const fmt = (v: string) => new Intl.DateTimeFormat('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+  }).format(new Date(v))
+  if (start && end) return `${fmt(start)} - ${fmt(end)}`
+  if (start) return fmt(start)
+  if (end) return fmt(end)
+  return '-'
+}
+
 async function load() {
-  const { data: o } = await supabase.from('orders').select('*').eq('id', id).single()
-  order.value = o ?? null
-  if (o) {
-    const { data: items } = await supabase.from('order_items').select('*').eq('order_id', id)
-    orderItems.value = items ?? []
-  }
-  const { data: pm } = await supabase.from('payment_methods').select('*').eq('is_active', true)
-  paymentMethods.value = pm ?? []
+  const data = await $fetch<{ order: any, items: any[], paymentMethods: any[] }>(`/api/member/orders/${id}`)
+  order.value = data.order ?? null
+  orderItems.value = data.items ?? []
+  paymentMethods.value = data.paymentMethods ?? []
 }
 
 async function submitPayment() {
-  if (!submission.payment_method_id || !user.value) return
+  if (!submission.payment_method_id || !order.value) return
   submitting.value = true
   try {
-    await supabase.from('payment_submissions').insert({
-      order_id: id,
-      payment_method_id: submission.payment_method_id,
-      user_id: user.value.id,
-      amount: order.value!.total,
-      transaction_id: submission.transaction_id || null,
-      status: 'pending',
-    } as any)
+    await $fetch(`/api/member/orders/${id}/payment-submissions`, {
+      method: 'POST',
+      body: {
+        payment_method_id: submission.payment_method_id,
+        transaction_id: submission.transaction_id || null,
+      },
+    })
     snackMsg.value = 'Payment submitted. We will verify shortly.'
     snackSuccess.value = true
     snack.value = true
+    submission.payment_method_id = ''
     submission.transaction_id = ''
     await load()
   }

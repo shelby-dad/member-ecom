@@ -43,98 +43,106 @@
           </v-btn>
         </v-card-title>
         <v-divider />
-        <v-card-text>
-          <v-tabs v-model="activeTab" density="comfortable" class="mb-4">
+        <v-card-text class="settings-card-text">
+          <v-tabs v-model="activeTab" density="comfortable" class="settings-tabs">
             <v-tab value="pricing">Pricing</v-tab>
             <v-tab value="shop">Shop</v-tab>
             <v-tab value="barcode">Barcode</v-tab>
             <v-tab value="smtp">SMTP</v-tab>
           </v-tabs>
 
-          <v-window v-model="activeTab">
-            <v-window-item value="pricing">
-              <v-row>
-                <v-col cols="12" md="4">
-                  <v-text-field v-model="form.pricing_symbol" label="Currency symbol" variant="outlined" />
-                </v-col>
-                <v-col cols="12" md="4">
-                  <v-text-field v-model="form.pricing_sign" label="Pricing sign" variant="outlined" hint="Optional prefix shown before all prices" persistent-hint />
-                </v-col>
-                <v-col cols="12" md="4">
-                  <v-text-field v-model="form.pricing_label" label="Pricing label" variant="outlined" />
-                </v-col>
-                <v-col cols="12" md="4">
-                  <v-text-field v-model.number="form.pricing_decimals" type="number" min="0" max="4" label="Decimal places" variant="outlined" />
-                </v-col>
-                <v-col cols="12" md="4">
-                  <v-select
-                    v-model="form.pricing_symbol_position"
-                    :items="symbolPositions"
-                    item-title="title"
-                    item-value="value"
-                    label="Symbol position"
-                    variant="outlined"
-                  />
-                </v-col>
-                <v-col cols="12" md="4" class="d-flex align-center">
-                  <div class="text-body-2">
-                    <span class="text-medium-emphasis d-block mb-1">Preview</span>
-                    <strong>{{ previewPrice }}</strong>
-                  </div>
-                </v-col>
-              </v-row>
+          <v-window v-model="activeTab" class="settings-window">
+            <v-window-item value="pricing" class="settings-pane">
+              <div class="settings-pane-body">
+                <v-row>
+                  <v-col cols="12" md="4">
+                    <v-text-field v-model="form.pricing_symbol" label="Currency symbol" variant="outlined" />
+                  </v-col>
+                  <v-col cols="12" md="4">
+                    <v-text-field v-model="form.pricing_sign" label="Pricing sign" variant="outlined" hint="Optional prefix shown before all prices" persistent-hint />
+                  </v-col>
+                  <v-col cols="12" md="4">
+                    <v-text-field v-model="form.pricing_label" label="Pricing label" variant="outlined" />
+                  </v-col>
+                  <v-col cols="12" md="4">
+                    <v-text-field v-model.number="form.pricing_decimals" type="number" min="0" max="4" label="Decimal places" variant="outlined" />
+                  </v-col>
+                  <v-col cols="12" md="4">
+                    <v-select
+                      v-model="form.pricing_symbol_position"
+                      :items="symbolPositions"
+                      item-title="title"
+                      item-value="value"
+                      label="Symbol position"
+                      variant="outlined"
+                    />
+                  </v-col>
+                  <v-col cols="12" md="4" class="d-flex align-center">
+                    <div class="text-body-2">
+                      <span class="text-medium-emphasis d-block mb-1">Preview</span>
+                      <strong>{{ previewPrice }}</strong>
+                    </div>
+                  </v-col>
+                </v-row>
+              </div>
             </v-window-item>
 
-            <v-window-item value="shop">
-              <v-text-field v-model="form.shop_email" label="Shop email" variant="outlined" class="mb-3" />
-              <v-text-field v-model="form.shop_location" label="Shop location" variant="outlined" class="mb-3" />
-              <v-textarea v-model="form.shop_address" label="Shop address" variant="outlined" rows="3" />
+            <v-window-item value="shop" class="settings-pane">
+              <div class="settings-pane-body settings-pane-body--spaced">
+                <v-text-field v-model="form.shop_email" label="Shop email" variant="outlined" class="mb-3" />
+                <v-text-field v-model="form.shop_location" label="Shop location" variant="outlined" class="mb-3" />
+                <v-textarea v-model="form.shop_address" label="Shop address" variant="outlined" rows="3" />
+              </div>
             </v-window-item>
 
-            <v-window-item value="barcode">
-              <v-select
-                v-model="form.barcode_type"
-                :items="barcodeTypes"
-                item-title="title"
-                item-value="value"
-                label="Default barcode type"
-                variant="outlined"
-                class="mb-3"
-              />
-              <p class="text-medium-emphasis text-body-2">
-                New products use this barcode type for random auto-generation. Product form also supports one-click Shuffle.
-              </p>
+            <v-window-item value="barcode" class="settings-pane">
+              <div class="settings-pane-body settings-pane-body--spaced">
+                <v-select
+                  v-model="form.barcode_type"
+                  :items="barcodeTypes"
+                  item-title="title"
+                  item-value="value"
+                  label="Default barcode type"
+                  variant="outlined"
+                  class="mb-3"
+                />
+                <p class="text-medium-emphasis text-body-2">
+                  New products use this barcode type for random auto-generation. Product form also supports one-click Shuffle.
+                </p>
+              </div>
             </v-window-item>
 
-            <v-window-item value="smtp">
-              <v-row>
-                <v-col cols="12" md="6">
-                  <v-text-field v-model="form.smtp_host" label="SMTP host" variant="outlined" class="mb-3" />
-                </v-col>
-                <v-col cols="12" md="3">
-                  <v-text-field v-model.number="form.smtp_port" type="number" min="1" max="65535" label="SMTP port" variant="outlined" class="mb-3" />
-                </v-col>
-                <v-col cols="12" md="3" class="d-flex align-center">
-                  <v-switch v-model="form.smtp_secure" label="Secure" color="primary" />
-                </v-col>
-              </v-row>
-              <v-text-field v-model="form.smtp_user" label="SMTP username" variant="outlined" class="mb-3" />
-              <v-text-field
-                v-model="form.smtp_password"
-                label="SMTP password"
-                variant="outlined"
-                type="password"
-                :placeholder="smtpPasswordSet ? 'Password is already set. Leave blank to keep.' : ''"
-                class="mb-3"
-              />
-              <v-row>
-                <v-col cols="12" md="6">
-                  <v-text-field v-model="form.smtp_from_email" label="From email" variant="outlined" />
-                </v-col>
-                <v-col cols="12" md="6">
-                  <v-text-field v-model="form.smtp_from_name" label="From name" variant="outlined" />
-                </v-col>
-              </v-row>
+            <v-window-item value="smtp" class="settings-pane">
+              <div class="settings-pane-body">
+                <v-row>
+                  <v-col cols="12" md="6">
+                    <v-text-field v-model="form.smtp_host" label="SMTP host" variant="outlined" class="mb-3" />
+                  </v-col>
+                  <v-col cols="12" md="3">
+                    <v-text-field v-model.number="form.smtp_port" type="number" min="1" max="65535" label="SMTP port" variant="outlined" class="mb-3" />
+                  </v-col>
+                  <v-col cols="12" md="3" class="d-flex align-center">
+                    <v-switch v-model="form.smtp_secure" label="Secure" color="primary" />
+                  </v-col>
+                </v-row>
+                <v-text-field v-model="form.smtp_user" label="SMTP username" variant="outlined" class="mb-3" />
+                <v-text-field
+                  v-model="form.smtp_password"
+                  label="SMTP password"
+                  variant="outlined"
+                  type="password"
+                  :placeholder="smtpPasswordSet ? 'Password is already set. Leave blank to keep.' : ''"
+                  class="mb-3"
+                />
+                <v-row>
+                  <v-col cols="12" md="6">
+                    <v-text-field v-model="form.smtp_from_email" label="From email" variant="outlined" />
+                  </v-col>
+                  <v-col cols="12" md="6">
+                    <v-text-field v-model="form.smtp_from_name" label="From name" variant="outlined" />
+                  </v-col>
+                </v-row>
+              </div>
             </v-window-item>
           </v-window>
         </v-card-text>
@@ -286,3 +294,34 @@ async function saveSettings() {
   }
 }
 </script>
+
+<style scoped>
+.settings-card-text {
+  padding-top: 10px !important;
+}
+
+.settings-tabs {
+  margin-bottom: 10px;
+}
+
+.settings-window :deep(.v-window-item) {
+  padding-top: 2px;
+}
+
+.settings-window :deep(.v-row) {
+  margin-top: 0 !important;
+}
+
+.settings-window :deep(.v-input) {
+  margin-top: 0 !important;
+}
+
+.settings-pane-body {
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+}
+
+.settings-pane-body--spaced {
+  margin-top: 10px !important;
+}
+</style>

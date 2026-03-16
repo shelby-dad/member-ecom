@@ -22,6 +22,16 @@
     "@mdi/font": "^7.4.47",
     "@nuxtjs/supabase": "^1.6.0",
     "@supabase/supabase-js": "^2.47.0",
+    "@tiptap/extension-color": "^3.20.2",
+    "@tiptap/extension-link": "^3.20.2",
+    "@tiptap/extension-table": "^3.20.2",
+    "@tiptap/extension-text-style": "^3.20.2",
+    "@tiptap/extension-underline": "^3.20.2",
+    "@tiptap/starter-kit": "^3.20.2",
+    "@tiptap/vue-3": "^3.20.2",
+    "@zxing/browser": "^0.1.5",
+    "@zxing/library": "^0.21.3",
+    "jsbarcode": "^3.12.3",
     "nuxt": "^3.14.1592",
     "vue": "^3.5.13",
     "vue-router": "^4.4.5",
@@ -39,5 +49,6 @@
     "typescript": "^5.6.3",
     "vitest": "^4.1.0",
     "vue-tsc": "^2.2.12"
-  }
+  },
+  "packageManager": "pnpm@10.30.3+sha512.c961d1e0a2d8e354ecaa5166b822516668b7f44cb5bd95122d590dd81922f606f5473b6d23ec4a5be05e7fcd18e8488d47d978bbe981872f1145d06e9a740017"
 }

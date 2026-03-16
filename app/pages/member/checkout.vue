@@ -101,15 +101,24 @@
             </span>
           </div>
         </template>
-        <v-select
-          v-model="selectedPromoId"
-          :items="promoOptions"
-          item-title="label"
-          item-value="id"
-          label="Promo package (optional)"
-          variant="outlined"
-          clearable
-        />
+        <div class="d-flex align-center ga-2">
+          <v-text-field
+            v-model="promoCodeInput"
+            label="Promo code (optional)"
+            variant="outlined"
+            class="flex-grow-1"
+            placeholder="Enter exact promo code"
+          />
+          <v-btn variant="outlined" @click="applyPromoCode">
+            Apply
+          </v-btn>
+          <v-btn variant="text" :disabled="!appliedPromo" @click="clearPromoCode">
+            Clear
+          </v-btn>
+        </div>
+        <p v-if="appliedPromo" class="text-caption text-success mt-1 mb-0">
+          Applied: {{ appliedPromo.name }} ({{ appliedPromo.code }})
+        </p>
       </v-card-text>
       <v-card-actions>
         <v-btn color="primary" :disabled="!selectedPaymentMethodId" :loading="submitting" @click="placeOrder">
@@ -156,7 +165,8 @@ const selectedPaymentMethodId = ref<string | null>(null)
 const paymentMethods = ref<any[]>([])
 const loadingPaymentMethods = ref(false)
 const promotions = ref<any[]>([])
-const selectedPromoId = ref<string | null>(null)
+const promoCodeInput = ref('')
+const appliedPromo = ref<any | null>(null)
 const showAddressDialog = ref(false)
 const savingAddress = ref(false)
 const submitting = ref(false)
@@ -188,12 +198,7 @@ const bankTransfer = reactive({
   slip_path: '',
 })
 
-const promoOptions = computed(() => promotions.value.map((p: any) => ({
-  id: p.id,
-  label: `${p.name}${p.code ? ` (${p.code})` : ''}`,
-})))
-
-const selectedPromo = computed(() => promotions.value.find((p: any) => p.id === selectedPromoId.value) ?? null)
+const selectedPromo = computed(() => appliedPromo.value)
 const discountTotal = computed(() => {
   const promo = selectedPromo.value
   if (!promo) return 0
@@ -249,6 +254,28 @@ async function loadPaymentMethods() {
 async function loadPromotions() {
   const data = await $fetch<any[]>('/api/promotions/active')
   promotions.value = data ?? []
+}
+
+function applyPromoCode() {
+  const code = promoCodeInput.value.trim().toUpperCase()
+  if (!code) {
+    appliedPromo.value = null
+    return
+  }
+  const promo = promotions.value.find((p: any) => String(p.code ?? '').trim().toUpperCase() === code) ?? null
+  if (!promo) {
+    appliedPromo.value = null
+    errorMsg.value = 'Promo code not found or inactive.'
+    errorSnack.value = true
+    return
+  }
+  appliedPromo.value = promo
+  promoCodeInput.value = code
+}
+
+function clearPromoCode() {
+  promoCodeInput.value = ''
+  appliedPromo.value = null
 }
 
 function resetAddressForm() {
@@ -368,7 +395,7 @@ async function placeOrder() {
       payment_method_id: selectedPaymentMethodId.value,
       transaction_id: selectedPaymentMethod.value?.type === 'bank_transfer' ? bankTransfer.transaction_id.trim() : undefined,
       slip_path: selectedPaymentMethod.value?.type === 'bank_transfer' ? bankTransfer.slip_path.trim() : undefined,
-      promo_id: selectedPromoId.value ?? null,
+      promo_id: appliedPromo.value?.id ?? null,
       items: cart.items.value.map(i => ({
         variant_id: i.variant_id,
         product_name: i.product_name,
@@ -380,6 +407,7 @@ async function placeOrder() {
     }
     const order = await $fetch<any>('/api/orders', { method: 'POST', body })
     cart.clear()
+    clearPromoCode()
     await navigateTo(`/member/orders/${order.id}`)
   }
   catch (e: any) {
@@ -394,6 +422,14 @@ async function placeOrder() {
 onMounted(loadAddresses)
 onMounted(loadPaymentMethods)
 onMounted(loadPromotions)
+
+watch(promoCodeInput, (value) => {
+  if (!appliedPromo.value) return
+  const code = String(value ?? '').trim().toUpperCase()
+  const appliedCode = String(appliedPromo.value.code ?? '').trim().toUpperCase()
+  if (code !== appliedCode)
+    appliedPromo.value = null
+})
 onMounted(async () => {
   await ensureProfile()
   walletBalance.value = Number(profile.value?.wallet_balance ?? 0)

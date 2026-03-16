@@ -43,10 +43,10 @@
               <v-text-field v-model="form.name" label="Name" variant="outlined" class="mb-2" />
             </v-col>
             <v-col cols="12" md="6">
-              <v-text-field v-model="form.code" label="Code (optional)" variant="outlined" class="mb-2" />
+              <v-text-field v-model="form.code" label="Code *" variant="outlined" class="mb-2" />
             </v-col>
             <v-col cols="12">
-              <v-textarea v-model="form.description" label="Description" variant="outlined" rows="2" />
+              <RichTextField v-model="form.description" label="Description" />
             </v-col>
             <v-col cols="12" md="4">
               <v-select
@@ -74,10 +74,98 @@
               <v-text-field v-model.number="form.per_user_limit" type="number" min="1" label="Per user limit (optional)" variant="outlined" />
             </v-col>
             <v-col cols="12" md="6">
-              <v-text-field v-model="form.starts_at" type="datetime-local" label="Start date/time" variant="outlined" />
+              <v-menu v-model="showStartPicker" :close-on-content-click="false" location="bottom">
+                <template #activator="{ props }">
+                  <v-text-field
+                    v-bind="props"
+                    :model-value="startDisplay"
+                    label="Start date/time"
+                    variant="outlined"
+                    readonly
+                    clearable
+                    @click:clear="clearDateTime('start')"
+                  />
+                </template>
+                <v-card min-width="320">
+                  <v-card-text>
+                    <v-date-picker
+                      :model-value="startDate"
+                      hide-header
+                      @update:model-value="onDatePicked('start', $event)"
+                    />
+                    <div class="d-flex ga-2 mt-3">
+                      <v-select
+                        :model-value="startHour"
+                        :items="hourItems"
+                        label="Hour"
+                        variant="outlined"
+                        density="compact"
+                        @update:model-value="startHour = String($event ?? '00')"
+                      />
+                      <v-select
+                        :model-value="startMinute"
+                        :items="minuteItems"
+                        label="Minute"
+                        variant="outlined"
+                        density="compact"
+                        @update:model-value="startMinute = String($event ?? '00')"
+                      />
+                    </div>
+                  </v-card-text>
+                  <v-card-actions>
+                    <v-spacer />
+                    <v-btn variant="text" @click="showStartPicker = false">Cancel</v-btn>
+                    <v-btn color="primary" @click="applyDateTime('start')">Apply</v-btn>
+                  </v-card-actions>
+                </v-card>
+              </v-menu>
             </v-col>
             <v-col cols="12" md="6">
-              <v-text-field v-model="form.ends_at" type="datetime-local" label="End date/time" variant="outlined" />
+              <v-menu v-model="showEndPicker" :close-on-content-click="false" location="bottom">
+                <template #activator="{ props }">
+                  <v-text-field
+                    v-bind="props"
+                    :model-value="endDisplay"
+                    label="End date/time"
+                    variant="outlined"
+                    readonly
+                    clearable
+                    @click:clear="clearDateTime('end')"
+                  />
+                </template>
+                <v-card min-width="320">
+                  <v-card-text>
+                    <v-date-picker
+                      :model-value="endDate"
+                      hide-header
+                      @update:model-value="onDatePicked('end', $event)"
+                    />
+                    <div class="d-flex ga-2 mt-3">
+                      <v-select
+                        :model-value="endHour"
+                        :items="hourItems"
+                        label="Hour"
+                        variant="outlined"
+                        density="compact"
+                        @update:model-value="endHour = String($event ?? '00')"
+                      />
+                      <v-select
+                        :model-value="endMinute"
+                        :items="minuteItems"
+                        label="Minute"
+                        variant="outlined"
+                        density="compact"
+                        @update:model-value="endMinute = String($event ?? '00')"
+                      />
+                    </div>
+                  </v-card-text>
+                  <v-card-actions>
+                    <v-spacer />
+                    <v-btn variant="text" @click="showEndPicker = false">Cancel</v-btn>
+                    <v-btn color="primary" @click="applyDateTime('end')">Apply</v-btn>
+                  </v-card-actions>
+                </v-card>
+              </v-menu>
             </v-col>
             <v-col cols="12">
               <v-checkbox v-model="form.is_active" label="Active" />
@@ -102,6 +190,16 @@ const promotions = ref<any[]>([])
 const showForm = ref(false)
 const editingId = ref<string | null>(null)
 const saving = ref(false)
+const showStartPicker = ref(false)
+const showEndPicker = ref(false)
+const hourItems = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'))
+const minuteItems = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'))
+const startDate = ref('')
+const startHour = ref('00')
+const startMinute = ref('00')
+const endDate = ref('')
+const endHour = ref('00')
+const endMinute = ref('00')
 const form = reactive({
   name: '',
   code: '',
@@ -145,6 +243,7 @@ function resetForm() {
   form.usage_limit = null
   form.per_user_limit = null
   form.is_active = true
+  syncPickersFromForm()
 }
 
 function openForm(item?: any) {
@@ -167,7 +266,86 @@ function openForm(item?: any) {
   form.usage_limit = item.usage_limit == null ? null : Number(item.usage_limit)
   form.per_user_limit = item.per_user_limit == null ? null : Number(item.per_user_limit)
   form.is_active = item.is_active ?? true
+  syncPickersFromForm()
   showForm.value = true
+}
+
+const startDisplay = computed(() => formatLocalDateTime(form.starts_at))
+const endDisplay = computed(() => formatLocalDateTime(form.ends_at))
+
+function formatLocalDateTime(local: string) {
+  if (!local) return ''
+  const [datePart, timePart] = local.split('T')
+  if (!datePart || !timePart) return local
+  return `${datePart} ${timePart.slice(0, 5)}`
+}
+
+function normalizePickerDate(value: unknown) {
+  const raw = Array.isArray(value) ? value[0] : value
+  if (raw == null) return ''
+  if (typeof raw === 'string')
+    return raw.slice(0, 10)
+  if (raw instanceof Date) {
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${raw.getFullYear()}-${pad(raw.getMonth() + 1)}-${pad(raw.getDate())}`
+  }
+  return ''
+}
+
+function splitLocalDateTime(value: string) {
+  if (!value || !value.includes('T'))
+    return { date: '', hour: '00', minute: '00' }
+  const [date, time] = value.split('T')
+  const [hour = '00', minute = '00'] = time.split(':')
+  return { date: date.slice(0, 10), hour: hour.slice(0, 2), minute: minute.slice(0, 2) }
+}
+
+function syncPickersFromForm() {
+  const start = splitLocalDateTime(form.starts_at)
+  startDate.value = start.date
+  startHour.value = start.hour
+  startMinute.value = start.minute
+
+  const end = splitLocalDateTime(form.ends_at)
+  endDate.value = end.date
+  endHour.value = end.hour
+  endMinute.value = end.minute
+}
+
+function onDatePicked(type: 'start' | 'end', value: unknown) {
+  const normalized = normalizePickerDate(value)
+  if (type === 'start')
+    startDate.value = normalized
+  else
+    endDate.value = normalized
+}
+
+function applyDateTime(type: 'start' | 'end') {
+  if (type === 'start') {
+    form.starts_at = startDate.value
+      ? `${startDate.value}T${startHour.value}:${startMinute.value}`
+      : ''
+    showStartPicker.value = false
+    return
+  }
+  form.ends_at = endDate.value
+    ? `${endDate.value}T${endHour.value}:${endMinute.value}`
+    : ''
+  showEndPicker.value = false
+}
+
+function clearDateTime(type: 'start' | 'end') {
+  if (type === 'start') {
+    form.starts_at = ''
+    startDate.value = ''
+    startHour.value = '00'
+    startMinute.value = '00'
+    return
+  }
+  form.ends_at = ''
+  endDate.value = ''
+  endHour.value = '00'
+  endMinute.value = '00'
 }
 
 async function load() {
@@ -175,13 +353,13 @@ async function load() {
 }
 
 async function save() {
-  if (!form.name.trim() || Number(form.discount_value) <= 0) return
+  if (!form.name.trim() || !form.code.trim() || Number(form.discount_value) <= 0) return
   saving.value = true
   try {
     const body = {
       name: form.name.trim(),
-      code: form.code.trim() || null,
-      description: form.description.trim() || null,
+      code: form.code.trim().toUpperCase(),
+      description: isRichTextEmpty(form.description) ? null : form.description,
       discount_type: form.discount_type,
       discount_value: Number(form.discount_value),
       min_subtotal: Number(form.min_subtotal) || 0,

@@ -41,7 +41,10 @@ export default defineNuxtRouteMiddleware(async (to) => {
   }
 
   const activeRoleCookie = useCookie<AppRole | null>('active-role')
-  const effectiveRole = resolveEffectiveRole(profile.role as AppRole, activeRoleCookie.value)
+  const onBehalfRoleCookie = useCookie<AppRole | null>('on-behalf-user-role')
+  const effectiveRole = onBehalfRoleCookie.value
+    ? (onBehalfRoleCookie.value as AppRole)
+    : resolveEffectiveRole(profile.role as AppRole, activeRoleCookie.value)
   activeRoleCookie.value = effectiveRole
 
   const requiredRoles = getRequiredRoles(to.path)

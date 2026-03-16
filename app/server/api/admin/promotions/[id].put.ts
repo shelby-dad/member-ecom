@@ -4,7 +4,7 @@ import { getServiceRoleClient } from '~/server/utils/supabase'
 
 const bodySchema = z.object({
   name: z.string().min(1).optional(),
-  code: z.string().optional().nullable(),
+  code: z.string().min(1).optional(),
   description: z.string().optional().nullable(),
   discount_type: z.enum(['fixed', 'percent']).optional(),
   discount_value: z.number().positive().optional(),
@@ -31,7 +31,7 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, message: parsed.error.message })
 
   const updates: Record<string, unknown> = { ...parsed.data }
-  if (parsed.data.code !== undefined) updates.code = parsed.data.code?.trim() || null
+  if (parsed.data.code !== undefined) updates.code = parsed.data.code.trim().toUpperCase()
   if (parsed.data.description !== undefined) updates.description = parsed.data.description?.trim() || null
 
   const supabase = await getServiceRoleClient(event)
@@ -45,4 +45,3 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 500, message: error.message })
   return data
 })
-

@@ -8,7 +8,7 @@
       <v-card-text>
         <v-text-field v-model="form.name" label="Name" variant="outlined" class="mb-2" />
         <v-text-field v-model="form.slug" label="Slug (optional, auto from name)" variant="outlined" class="mb-2" />
-        <v-textarea v-model="form.description" label="Description" variant="outlined" class="mb-2" rows="2" />
+        <RichTextField v-model="form.description" label="Description" class="product-description-editor" />
         <v-text-field
           v-model="form.barcode"
           label="Barcode"
@@ -18,9 +18,21 @@
           persistent-hint
         >
           <template #append-inner>
-            <v-btn size="small" variant="text" :loading="generatingBarcode" @click="shuffleBarcode">
-              Shuffle
-            </v-btn>
+            <div class="d-flex align-center ga-1">
+              <v-btn
+                size="small"
+                variant="text"
+                icon="mdi-shuffle-variant"
+                :loading="generatingBarcode"
+                @click="shuffleBarcode"
+              />
+              <v-btn
+                size="small"
+                variant="text"
+                icon="mdi-camera-outline"
+                @click="openScanDialog"
+              />
+            </div>
           </template>
         </v-text-field>
         <v-select
@@ -227,6 +239,47 @@
     :categories="categories"
     @created="onTagCreated"
   />
+  <v-dialog v-model="showScannerDialog" max-width="640" persistent>
+    <v-card>
+      <v-card-title>Scan product barcode</v-card-title>
+      <v-card-text>
+        <p class="text-caption text-medium-emphasis mb-2">
+          Allow camera access and point the camera at the barcode.
+        </p>
+        <div class="scanner-stage">
+          <video ref="scannerVideoRef" class="scanner-video" autoplay muted playsinline />
+          <div class="scanner-guide">
+            <div class="scanner-line" />
+          </div>
+        </div>
+        <p class="text-caption text-medium-emphasis mt-2 mb-0">
+          Place barcode inside the frame.
+        </p>
+        <p v-if="scannerError" class="text-caption text-error mt-2 mb-0">
+          {{ scannerError }}
+        </p>
+        <div class="d-flex align-center ga-2 mt-3">
+          <input
+            ref="scannerImageInputRef"
+            type="file"
+            accept="image/*"
+            class="d-none"
+            @change="onBarcodeImageSelected"
+          >
+          <v-btn variant="outlined" prepend-icon="mdi-image-search-outline" :loading="scannerImageLoading" @click="scannerImageInputRef?.click()">
+            Scan from image
+          </v-btn>
+          <span class="text-caption text-medium-emphasis">
+            You can also upload a barcode photo.
+          </span>
+        </div>
+      </v-card-text>
+      <v-card-actions>
+        <v-spacer />
+        <v-btn variant="text" @click="closeScanDialog">Close</v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
 </template>
 
 <script setup lang="ts">
@@ -262,6 +315,13 @@ const showCategoryDialog = ref(false)
 const showTagDialog = ref(false)
 const showImagePicker = ref(false)
 const generatingBarcode = ref(false)
+const showScannerDialog = ref(false)
+const scannerError = ref('')
+const scannerImageLoading = ref(false)
+const scannerVideoRef = ref<HTMLVideoElement | null>(null)
+const scannerImageInputRef = ref<HTMLInputElement | null>(null)
+let scannerControls: { stop: () => void } | null = null
+let scannerReader: any = null
 const pickerTarget = ref<{ optionIdx: number; entryIdx: number } | null>(null)
 const currentPickerSelectedPath = computed(() => {
   if (!pickerTarget.value) return ''
@@ -369,7 +429,7 @@ async function createProduct() {
     const body: any = {
       name: form.name.trim(),
       slug: form.slug.trim() || undefined,
-      description: form.description.trim() || undefined,
+      description: isRichTextEmpty(form.description) ? undefined : form.description,
       barcode: form.barcode.trim() || undefined,
       brand_id: form.brand_id ?? null,
       category_ids: form.category_ids,
@@ -418,6 +478,123 @@ async function shuffleBarcode() {
   }
 }
 
+async function openScanDialog() {
+  showScannerDialog.value = true
+  await nextTick()
+  await startScanner()
+}
+
+function stopScanner() {
+  if (!scannerControls) return
+  try {
+    scannerControls.stop()
+  }
+  finally {
+    scannerControls = null
+  }
+}
+
+async function startScanner() {
+  if (!import.meta.client) return
+  scannerError.value = ''
+  stopScanner()
+  if (!scannerVideoRef.value) return
+  try {
+    const { BrowserMultiFormatReader } = await import('@zxing/browser')
+    const { BarcodeFormat, DecodeHintType } = await import('@zxing/library')
+    if (!scannerReader) {
+      const hints = new Map<any, any>()
+      hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+        BarcodeFormat.CODE_128,
+        BarcodeFormat.EAN_13,
+        BarcodeFormat.EAN_8,
+        BarcodeFormat.UPC_A,
+        BarcodeFormat.UPC_E,
+        BarcodeFormat.CODE_39,
+        BarcodeFormat.ITF,
+      ])
+      hints.set(DecodeHintType.TRY_HARDER, true)
+      scannerReader = new BrowserMultiFormatReader(hints)
+    }
+    scannerControls = await scannerReader.decodeFromConstraints(
+      {
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+      },
+      scannerVideoRef.value,
+      (result: any, error: any) => {
+        if (result?.getText) {
+          form.barcode = String(result.getText()).trim()
+          closeScanDialog()
+          return
+        }
+        const errName = String(error?.name ?? '')
+        if (error && errName && !['NotFoundException', 'ChecksumException', 'FormatException'].includes(errName))
+          scannerError.value = error?.message || 'Camera scanning failed.'
+      },
+    )
+  }
+  catch (e: any) {
+    scannerError.value = humanizeScannerError(e)
+  }
+}
+
+function closeScanDialog() {
+  showScannerDialog.value = false
+  stopScanner()
+}
+
+async function onBarcodeImageSelected(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  scannerImageLoading.value = true
+  scannerError.value = ''
+  try {
+    const { BrowserMultiFormatReader } = await import('@zxing/browser')
+    if (!scannerReader)
+      scannerReader = new BrowserMultiFormatReader()
+    const url = URL.createObjectURL(file)
+    try {
+      const result = await scannerReader.decodeFromImageUrl(url)
+      const code = result?.getText?.() ? String(result.getText()).trim() : ''
+      if (!code)
+        throw new Error('No barcode found in selected image.')
+      form.barcode = code
+      closeScanDialog()
+    }
+    finally {
+      URL.revokeObjectURL(url)
+    }
+  }
+  catch (e: any) {
+    scannerError.value = humanizeScannerError(e)
+  }
+  finally {
+    scannerImageLoading.value = false
+    input.value = ''
+  }
+}
+
+function humanizeScannerError(error: any) {
+  const msg = String(error?.message ?? '')
+  if (!msg) return 'Scanner failed. Please try again.'
+  if (msg.includes('No MultiFormat Readers were able to detect the code'))
+    return 'No barcode detected. Try a clearer image with better lighting and full barcode in frame.'
+  if (msg.toLowerCase().includes('permission'))
+    return 'Camera permission denied. Please allow camera access in browser settings.'
+  if (msg.toLowerCase().includes('notfounderror'))
+    return 'No camera device found.'
+  if (msg.toLowerCase().includes('notreadableerror'))
+    return 'Camera is busy in another app/tab. Close it and retry.'
+  if (msg.toLowerCase().includes('overconstrainederror'))
+    return 'Camera constraints are not supported on this device. Please try scan from image.'
+  return msg
+}
+
 function onBrandCreated(item: any) {
   brands.value = [...brands.value, item]
   form.brand_id = item.id
@@ -439,6 +616,10 @@ onMounted(async () => {
   await loadMetadata()
   await shuffleBarcode()
 })
+
+onBeforeUnmount(() => {
+  stopScanner()
+})
 </script>
 
 <style scoped>
@@ -450,5 +631,56 @@ onMounted(async () => {
   overflow: hidden;
   padding: 0;
   cursor: pointer;
+}
+
+.product-description-editor {
+  margin-bottom: 16px;
+}
+
+.product-description-editor :deep(.rich-editor-content .rich-editor-input) {
+  min-height: 256px;
+}
+
+.scanner-video {
+  width: 100%;
+  min-height: 260px;
+  max-height: 380px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: #0f172a;
+  object-fit: cover;
+}
+
+.scanner-stage {
+  position: relative;
+}
+
+.scanner-guide {
+  pointer-events: none;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(86%, 420px);
+  height: min(54%, 180px);
+  transform: translate(-50%, -50%);
+  border: 2px solid rgba(34, 197, 94, 0.9);
+  border-radius: 10px;
+  box-shadow: 0 0 0 9999px rgba(2, 6, 23, 0.25);
+  overflow: hidden;
+}
+
+.scanner-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: rgba(34, 197, 94, 0.95);
+  box-shadow: 0 0 10px rgba(34, 197, 94, 0.75);
+  animation: scanner-line-move 1.8s linear infinite;
+}
+
+@keyframes scanner-line-move {
+  0% { top: 0; }
+  100% { top: calc(100% - 2px); }
 }
 </style>

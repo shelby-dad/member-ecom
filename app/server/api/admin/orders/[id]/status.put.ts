@@ -5,6 +5,8 @@ import { applyOrderStock } from '~/server/utils/order-stock'
 
 const bodySchema = z.object({
   status: z.enum(['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled']),
+  estimate_delivery_start: z.string().optional().nullable(),
+  estimate_delivery_end: z.string().optional().nullable(),
 })
 
 export default defineEventHandler(async (event) => {
@@ -75,9 +77,18 @@ export default defineEventHandler(async (event) => {
     created_by: profile.id,
   })
 
+  const updates: Record<string, unknown> = { status: parsed.data.status, stock_applied: nextStockApplied }
+  if (parsed.data.status === 'shipped') {
+    updates.estimate_delivery_start = parsed.data.estimate_delivery_start || null
+    updates.estimate_delivery_end = parsed.data.estimate_delivery_end || null
+  } else {
+    updates.estimate_delivery_start = null
+    updates.estimate_delivery_end = null
+  }
+
   const { data, error } = await supabase
     .from('orders')
-    .update({ status: parsed.data.status, stock_applied: nextStockApplied })
+    .update(updates)
     .eq('id', orderId)
     .select()
     .single()

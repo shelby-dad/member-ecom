@@ -42,6 +42,16 @@
           </v-btn>
 
           <v-btn
+            v-if="canUpload"
+            size="small"
+            variant="outlined"
+            prepend-icon="mdi-camera-outline"
+            @click="openCamera"
+          >
+            Camera
+          </v-btn>
+
+          <v-btn
             v-if="canManageFolders"
             size="small"
             variant="outlined"
@@ -52,6 +62,14 @@
           </v-btn>
 
           <input ref="fileInput" type="file" accept="image/jpeg,image/png,image/webp" multiple class="d-none" @change="onUploadFiles">
+          <input
+            ref="cameraInput"
+            type="file"
+            accept="image/*"
+            capture="environment"
+            class="d-none"
+            @change="onCaptureFile"
+          >
         </div>
 
         <div class="d-flex align-center ga-2 mb-3 flex-wrap">
@@ -165,6 +183,32 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <v-dialog v-model="cameraDialog" max-width="680" persistent>
+      <v-card>
+        <v-card-title>Camera Capture</v-card-title>
+        <v-card-text>
+          <p class="text-caption text-medium-emphasis mb-2">
+            Allow camera permission, then capture and upload directly to this folder.
+          </p>
+          <video ref="cameraVideoRef" class="camera-preview" autoplay muted playsinline />
+        </v-card-text>
+        <v-card-actions>
+          <v-btn variant="text" :disabled="cameraCaptureLoading" @click="closeCameraDialog">
+            Cancel
+          </v-btn>
+          <v-spacer />
+          <v-btn
+            color="primary"
+            prepend-icon="mdi-camera"
+            :loading="cameraCaptureLoading"
+            @click="captureFromCamera"
+          >
+            Capture & Upload
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </v-dialog>
 </template>
 
@@ -195,6 +239,11 @@ const pageSize = 50
 const nextOffset = ref(0)
 const hasMore = ref(true)
 const fileInput = ref<HTMLInputElement | null>(null)
+const cameraInput = ref<HTMLInputElement | null>(null)
+const cameraDialog = ref(false)
+const cameraCaptureLoading = ref(false)
+const cameraVideoRef = ref<HTMLVideoElement | null>(null)
+let cameraStream: MediaStream | null = null
 const role = ref<string>('member')
 
 const createFolderDialog = ref(false)
@@ -314,6 +363,54 @@ async function fetchPage(reset = false) {
 function goToRoot() {
   currentPrefix.value = ''
   fetchPage(true)
+}
+
+function stopCameraStream() {
+  if (!cameraStream) return
+  for (const track of cameraStream.getTracks())
+    track.stop()
+  cameraStream = null
+  if (cameraVideoRef.value)
+    cameraVideoRef.value.srcObject = null
+}
+
+async function startCameraStream() {
+  if (!import.meta.client || !cameraVideoRef.value) return
+  stopCameraStream()
+  if (!navigator.mediaDevices?.getUserMedia)
+    throw new Error('Camera preview is not supported on this device/browser.')
+
+  cameraStream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: { ideal: 'environment' } },
+    audio: false,
+  })
+  cameraVideoRef.value.srcObject = cameraStream
+  await cameraVideoRef.value.play()
+}
+
+async function openCamera() {
+  if (!canUpload.value) return
+  errorMsg.value = ''
+  if (!import.meta.client || !navigator.mediaDevices?.getUserMedia) {
+    cameraInput.value?.click()
+    return
+  }
+
+  cameraDialog.value = true
+  await nextTick()
+  try {
+    await startCameraStream()
+  }
+  catch (e: any) {
+    cameraDialog.value = false
+    errorMsg.value = e?.message ?? 'Unable to open camera.'
+    cameraInput.value?.click()
+  }
+}
+
+function closeCameraDialog() {
+  cameraDialog.value = false
+  stopCameraStream()
 }
 
 function goToPrefix(prefix: string) {
@@ -474,6 +571,64 @@ async function onUploadFiles(e: Event) {
   await fetchPage(true)
 }
 
+async function onCaptureFile(e: Event) {
+  if (!canUpload.value) return
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+
+  errorMsg.value = ''
+  const ext = file.name.split('.').pop() || 'jpg'
+  const safeName = `camera-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${ext}`
+  const path = currentPrefix.value ? `${currentPrefix.value}/${safeName}` : safeName
+
+  const { error } = await supabase.storage.from(props.bucket).upload(path, file, { upsert: false })
+  if (error)
+    errorMsg.value = error.message
+
+  input.value = ''
+  await fetchPage(true)
+}
+
+async function captureFromCamera() {
+  if (!cameraVideoRef.value || !cameraStream) return
+
+  const video = cameraVideoRef.value
+  const width = Math.max(1, video.videoWidth || 1280)
+  const height = Math.max(1, video.videoHeight || 720)
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const ctx = canvas.getContext('2d')
+  if (!ctx) {
+    errorMsg.value = 'Unable to capture image.'
+    return
+  }
+  ctx.drawImage(video, 0, 0, width, height)
+
+  cameraCaptureLoading.value = true
+  try {
+    const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.92))
+    if (!blob) {
+      errorMsg.value = 'Unable to capture image.'
+      return
+    }
+
+    const safeName = `camera-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.jpg`
+    const path = currentPrefix.value ? `${currentPrefix.value}/${safeName}` : safeName
+    const { error } = await supabase.storage.from(props.bucket).upload(path, blob, { upsert: false, contentType: 'image/jpeg' })
+    if (error) {
+      errorMsg.value = error.message
+      return
+    }
+    closeCameraDialog()
+    await fetchPage(true)
+  }
+  finally {
+    cameraCaptureLoading.value = false
+  }
+}
+
 watch(search, () => fetchPage(true))
 
 watch(
@@ -482,9 +637,15 @@ watch(
     if (open) {
       await loadRole()
       fetchPage(true)
+    } else {
+      stopCameraStream()
     }
   },
 )
+
+onBeforeUnmount(() => {
+  stopCameraStream()
+})
 </script>
 
 <style scoped>
@@ -514,5 +675,15 @@ watch(
 .fill-size {
   width: 100%;
   height: 100%;
+}
+
+.camera-preview {
+  width: 100%;
+  min-height: 280px;
+  max-height: 460px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: #0f172a;
+  object-fit: cover;
 }
 </style>

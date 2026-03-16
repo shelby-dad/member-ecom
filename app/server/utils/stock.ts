@@ -37,11 +37,16 @@ export async function setStock(
   branchId: string | null = null,
   userId?: string,
 ) {
-  const { data: rows, error: existingError } = await supabase
+  let query = supabase
     .from('stock')
     .select('id, quantity')
     .eq('variant_id', variantId)
-    .is('branch_id', branchId)
+
+  query = branchId == null
+    ? query.is('branch_id', null)
+    : query.eq('branch_id', branchId)
+
+  const { data: rows, error: existingError } = await query
   if (existingError) throw existingError
   const existingRows = rows ?? []
   const existing = existingRows[0]

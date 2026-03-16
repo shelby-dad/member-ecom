@@ -49,7 +49,7 @@
         </div>
       </v-app-bar-title>
 
-      <v-menu location="bottom end">
+      <v-menu v-if="!isOnBehalf" location="bottom end">
         <template #activator="{ props: menuProps }">
           <v-btn
             size="small"
@@ -109,6 +109,14 @@
 
     <v-main class="app-shell-main">
       <div class="app-shell-glow" />
+      <div v-if="isOnBehalf" class="app-on-behalf-banner d-flex align-center justify-space-between flex-wrap ga-2 px-4 py-2">
+        <span class="text-body-2">
+          You are seeing this because on behalf of user {{ onBehalfEmail }}.
+        </span>
+        <v-btn size="small" variant="tonal" color="warning" :loading="exitingOnBehalf" @click="exitOnBehalf">
+          Exit
+        </v-btn>
+      </div>
       <div class="app-container app-section">
         <slot />
       </div>
@@ -132,9 +140,13 @@ const drawer = ref(false)
 const rail = ref(false)
 const baseRole = ref<AppRole | null>(null)
 const switchingRole = ref(false)
+const exitingOnBehalf = ref(false)
+const onBehalfUserId = useCookie<string | null>('on-behalf-user-id', { sameSite: 'lax', path: '/' })
+const onBehalfEmail = useCookie<string | null>('on-behalf-user-email', { sameSite: 'lax', path: '/' })
 
 const { activeRole, availableRoles, syncActiveRole, setActiveRole } = useActiveRole(baseRole)
 const shellRole = computed(() => activeRole.value ?? props.role)
+const isOnBehalf = computed(() => Boolean(onBehalfUserId.value))
 const { items, home } = useAppNavigation(shellRole)
 const { colorMode, setMode, resolvedTheme } = useThemeMode()
 const { ensureProfile } = useProfile()
@@ -232,7 +244,34 @@ async function signOut() {
   const supabase = useSupabaseClient()
   await supabase.auth.signOut()
   useCookie('active-role').value = null
+  useCookie('on-behalf-user-id').value = null
+  useCookie('on-behalf-user-email').value = null
+  useCookie('on-behalf-user-role').value = null
   useProfile().clearProfile()
   await navigateTo('/auth/login', { replace: true })
 }
+
+async function exitOnBehalf() {
+  if (!isOnBehalf.value)
+    return
+  exitingOnBehalf.value = true
+  try {
+    await $fetch('/api/auth/on-behalf', { method: 'DELETE' })
+    onBehalfUserId.value = null
+    onBehalfEmail.value = null
+    useCookie('on-behalf-user-role').value = null
+    const resolved = setActiveRole('superadmin')
+    await navigateTo(getRoleHome(resolved ?? 'superadmin'), { replace: true })
+  }
+  finally {
+    exitingOnBehalf.value = false
+  }
+}
 </script>
+
+<style scoped>
+.app-on-behalf-banner {
+  background: rgba(245, 158, 11, 0.16);
+  border-bottom: 1px solid rgba(245, 158, 11, 0.35);
+}
+</style>

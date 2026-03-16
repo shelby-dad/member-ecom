@@ -89,7 +89,7 @@
       </v-card-text>
     </v-card>
 
-    <v-row>
+    <v-row v-if="products.length">
       <v-col v-for="p in products" :key="p.id" cols="12" sm="6" lg="4">
         <v-card class="app-card h-100" hover @click="goProduct(p.id)">
           <div class="catalog-card-media">
@@ -109,7 +109,7 @@
             {{ formatPrice(p.min_price) }}
           </v-card-subtitle>
           <v-card-text>
-            {{ p.description || 'No description' }}
+            <div class="catalog-description" v-html="renderDescription(p.description)" />
           </v-card-text>
           <v-card-actions>
             <v-btn variant="flat" color="primary" size="small" @click.stop="goProduct(p.id)">
@@ -130,17 +130,41 @@
       </v-col>
     </v-row>
 
-    <div v-if="initialLoading" class="text-center py-8">
-      <v-progress-circular indeterminate />
-    </div>
+    <v-row v-if="initialLoading">
+      <v-col v-for="n in 6" :key="`catalog-skeleton-init-${n}`" cols="12" sm="6" lg="4">
+        <v-card class="app-card h-100" variant="outlined">
+          <v-skeleton-loader type="image" height="180" />
+          <v-card-title><v-skeleton-loader type="text" /></v-card-title>
+          <v-card-subtitle class="pt-0"><v-skeleton-loader type="text" width="90px" /></v-card-subtitle>
+          <v-card-text>
+            <v-skeleton-loader type="paragraph" />
+          </v-card-text>
+          <v-card-actions>
+            <v-skeleton-loader type="button" width="80px" />
+          </v-card-actions>
+        </v-card>
+      </v-col>
+    </v-row>
     <p v-else-if="products.length === 0" class="text-medium-emphasis">
       No products matched your filters.
     </p>
 
     <div ref="sentinel" class="catalog-sentinel" />
-    <div v-if="loadingMore && !initialLoading" class="text-center py-3">
-      <v-progress-circular size="22" indeterminate />
-    </div>
+    <v-row v-if="loadingMore && !initialLoading" class="mt-1">
+      <v-col v-for="n in 3" :key="`catalog-skeleton-more-${n}`" cols="12" sm="6" lg="4">
+        <v-card class="app-card h-100" variant="outlined">
+          <v-skeleton-loader type="image" height="180" />
+          <v-card-title><v-skeleton-loader type="text" /></v-card-title>
+          <v-card-subtitle class="pt-0"><v-skeleton-loader type="text" width="90px" /></v-card-subtitle>
+          <v-card-text>
+            <v-skeleton-loader type="paragraph" />
+          </v-card-text>
+          <v-card-actions>
+            <v-skeleton-loader type="button" width="80px" />
+          </v-card-actions>
+        </v-card>
+      </v-col>
+    </v-row>
 
     <v-dialog v-model="showVariantDialog" max-width="640" persistent>
       <v-card>
@@ -304,6 +328,12 @@ function imageUrl(path: string) {
     return path
   const base = config.public.supabaseUrl as string
   return base ? `${base}/storage/v1/object/public/product-images/${path}` : path
+}
+
+function renderDescription(value: string | null | undefined) {
+  if (isRichTextEmpty(value))
+    return '<p>No description</p>'
+  return sanitizeRichText(value)
 }
 
 function goProduct(id: string) {
@@ -593,6 +623,19 @@ onBeforeUnmount(() => {
   color: #fff;
   border-radius: 999px;
   box-shadow: 0 8px 20px rgba(22, 163, 74, 0.24);
+}
+
+.catalog-description :deep(p) {
+  margin: 0 0 0.45rem;
+}
+
+.catalog-description :deep(p:last-child) {
+  margin-bottom: 0;
+}
+
+.catalog-description :deep(a) {
+  color: rgb(var(--v-theme-primary));
+  text-decoration: underline;
 }
 
 .variant-visual-panel {

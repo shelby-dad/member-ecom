@@ -8,7 +8,7 @@
       <v-card-text>
         <v-text-field v-model="product.name" label="Name" variant="outlined" class="mb-2" @blur="updateProduct" />
         <v-text-field v-model="product.slug" label="Slug" variant="outlined" class="mb-2" @blur="updateProduct" />
-        <v-textarea v-model="product.description" label="Description" variant="outlined" class="mb-2" rows="2" @blur="updateProduct" />
+        <RichTextField v-model="product.description" label="Description" class="product-description-editor" @blur="updateProduct" />
         <v-text-field
           v-model="product.barcode"
           label="Barcode"
@@ -19,9 +19,21 @@
           @blur="updateProduct"
         >
           <template #append-inner>
-            <v-btn size="small" variant="text" :loading="generatingBarcode" @click="shuffleBarcode">
-              Shuffle
-            </v-btn>
+            <div class="d-flex align-center ga-1">
+              <v-btn
+                size="small"
+                variant="text"
+                icon="mdi-shuffle-variant"
+                :loading="generatingBarcode"
+                @click="shuffleBarcode"
+              />
+              <v-btn
+                size="small"
+                variant="text"
+                icon="mdi-camera-outline"
+                @click="openScanDialog"
+              />
+            </div>
           </template>
         </v-text-field>
         <v-select
@@ -192,14 +204,13 @@
             </v-btn>
           </div>
           <div class="d-flex align-center justify-center rounded bg-grey-lighten-2" style="width: 80px; height: 80px">
-            <input ref="fileInput" type="file" accept="image/jpeg,image/png,image/webp" multiple class="d-none" @change="onFileSelect">
-            <v-btn icon variant="text" @click="fileInput?.click()">
+            <v-btn icon variant="text" @click="showProductImagePicker = true">
               <v-icon>mdi-plus</v-icon>
             </v-btn>
           </div>
         </div>
         <p class="text-caption text-medium-emphasis">
-          Upload JPEG, PNG or WebP (max 5MB). Order: drag or reorder by moving items.
+          Add images from Storage Explorer. You can also upload JPEG, PNG or WebP there (max 5MB).
         </p>
       </v-card-text>
     </v-card>
@@ -342,6 +353,10 @@
     :selected-path="currentPickerSelectedPath"
     @selected="onImageSelected"
   />
+  <StorageImagePickerDialog
+    v-model="showProductImagePicker"
+    @selected="onProductImageSelected"
+  />
   <ProductMetadataCreateDialog
     v-model="showBrandDialog"
     type="brand"
@@ -360,6 +375,47 @@
     :categories="categories"
     @created="onTagCreated"
   />
+  <v-dialog v-model="showScannerDialog" max-width="640" persistent>
+    <v-card>
+      <v-card-title>Scan product barcode</v-card-title>
+      <v-card-text>
+        <p class="text-caption text-medium-emphasis mb-2">
+          Allow camera access and point the camera at the barcode.
+        </p>
+        <div class="scanner-stage">
+          <video ref="scannerVideoRef" class="scanner-video" autoplay muted playsinline />
+          <div class="scanner-guide">
+            <div class="scanner-line" />
+          </div>
+        </div>
+        <p class="text-caption text-medium-emphasis mt-2 mb-0">
+          Place barcode inside the frame.
+        </p>
+        <p v-if="scannerError" class="text-caption text-error mt-2 mb-0">
+          {{ scannerError }}
+        </p>
+        <div class="d-flex align-center ga-2 mt-3">
+          <input
+            ref="scannerImageInputRef"
+            type="file"
+            accept="image/*"
+            class="d-none"
+            @change="onBarcodeImageSelected"
+          >
+          <v-btn variant="outlined" prepend-icon="mdi-image-search-outline" :loading="scannerImageLoading" @click="scannerImageInputRef?.click()">
+            Scan from image
+          </v-btn>
+          <span class="text-caption text-medium-emphasis">
+            You can also upload a barcode photo.
+          </span>
+        </div>
+      </v-card-text>
+      <v-card-actions>
+        <v-spacer />
+        <v-btn variant="text" @click="closeScanDialog">Close</v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
 </template>
 
 <script setup lang="ts">
@@ -391,9 +447,16 @@ const bulkSaving = ref(false)
 const bulkPrice = ref<string>('')
 const bulkStock = ref<string>('')
 const selectedIds = ref<string[]>([])
+const showScannerDialog = ref(false)
+const scannerError = ref('')
+const scannerImageLoading = ref(false)
+const scannerVideoRef = ref<HTMLVideoElement | null>(null)
+const scannerImageInputRef = ref<HTMLInputElement | null>(null)
+let scannerControls: { stop: () => void } | null = null
+let scannerReader: any = null
 const variantForm = reactive({ name: '', sku: '', price: 0, track_stock: true })
-const fileInput = ref<HTMLInputElement | null>(null)
 const showImagePicker = ref(false)
+const showProductImagePicker = ref(false)
 const pickerTarget = ref<{ optionIdx: number; entryIdx: number } | null>(null)
 const currentPickerSelectedPath = computed(() => {
   if (!pickerTarget.value) return ''
@@ -566,7 +629,7 @@ async function updateProduct() {
   const body: any = {
     name: product.value.name,
     slug: product.value.slug,
-    description: product.value.description,
+    description: isRichTextEmpty(product.value.description) ? '' : product.value.description,
     barcode: product.value.barcode?.trim() || null,
     brand_id: product.value.brand_id ?? null,
     category_ids: product.value.category_ids ?? [],
@@ -590,6 +653,127 @@ async function shuffleBarcode() {
   finally {
     generatingBarcode.value = false
   }
+}
+
+async function openScanDialog() {
+  showScannerDialog.value = true
+  await nextTick()
+  await startScanner()
+}
+
+function stopScanner() {
+  if (!scannerControls) return
+  try {
+    scannerControls.stop()
+  }
+  finally {
+    scannerControls = null
+  }
+}
+
+async function startScanner() {
+  if (!import.meta.client) return
+  scannerError.value = ''
+  stopScanner()
+  if (!scannerVideoRef.value) return
+  try {
+    const { BrowserMultiFormatReader } = await import('@zxing/browser')
+    const { BarcodeFormat, DecodeHintType } = await import('@zxing/library')
+    if (!scannerReader) {
+      const hints = new Map<any, any>()
+      hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+        BarcodeFormat.CODE_128,
+        BarcodeFormat.EAN_13,
+        BarcodeFormat.EAN_8,
+        BarcodeFormat.UPC_A,
+        BarcodeFormat.UPC_E,
+        BarcodeFormat.CODE_39,
+        BarcodeFormat.ITF,
+      ])
+      hints.set(DecodeHintType.TRY_HARDER, true)
+      scannerReader = new BrowserMultiFormatReader(hints)
+    }
+    scannerControls = await scannerReader.decodeFromConstraints(
+      {
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+      },
+      scannerVideoRef.value,
+      (result: any, error: any) => {
+        if (result?.getText) {
+          if (product.value)
+            product.value.barcode = String(result.getText()).trim()
+          closeScanDialog()
+          updateProduct()
+          return
+        }
+        const errName = String(error?.name ?? '')
+        if (error && errName && !['NotFoundException', 'ChecksumException', 'FormatException'].includes(errName))
+          scannerError.value = error?.message || 'Camera scanning failed.'
+      },
+    )
+  }
+  catch (e: any) {
+    scannerError.value = humanizeScannerError(e)
+  }
+}
+
+function closeScanDialog() {
+  showScannerDialog.value = false
+  stopScanner()
+}
+
+async function onBarcodeImageSelected(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  scannerImageLoading.value = true
+  scannerError.value = ''
+  try {
+    const { BrowserMultiFormatReader } = await import('@zxing/browser')
+    if (!scannerReader)
+      scannerReader = new BrowserMultiFormatReader()
+    const url = URL.createObjectURL(file)
+    try {
+      const result = await scannerReader.decodeFromImageUrl(url)
+      const code = result?.getText?.() ? String(result.getText()).trim() : ''
+      if (!code)
+        throw new Error('No barcode found in selected image.')
+      if (product.value)
+        product.value.barcode = code
+      closeScanDialog()
+      await updateProduct()
+    }
+    finally {
+      URL.revokeObjectURL(url)
+    }
+  }
+  catch (e: any) {
+    scannerError.value = humanizeScannerError(e)
+  }
+  finally {
+    scannerImageLoading.value = false
+    input.value = ''
+  }
+}
+
+function humanizeScannerError(error: any) {
+  const msg = String(error?.message ?? '')
+  if (!msg) return 'Scanner failed. Please try again.'
+  if (msg.includes('No MultiFormat Readers were able to detect the code'))
+    return 'No barcode detected. Try a clearer image with better lighting and full barcode in frame.'
+  if (msg.toLowerCase().includes('permission'))
+    return 'Camera permission denied. Please allow camera access in browser settings.'
+  if (msg.toLowerCase().includes('notfounderror'))
+    return 'No camera device found.'
+  if (msg.toLowerCase().includes('notreadableerror'))
+    return 'Camera is busy in another app/tab. Close it and retry.'
+  if (msg.toLowerCase().includes('overconstrainederror'))
+    return 'Camera constraints are not supported on this device. Please try scan from image.'
+  return msg
 }
 
 function saveOptionSets() {
@@ -680,22 +864,12 @@ async function generateVariants() {
   }
 }
 
-async function onFileSelect(e: Event) {
-  const input = e.target as HTMLInputElement
-  const files = input.files
-  if (!files?.length) return
-  const supabase = useSupabaseClient()
-  for (const file of Array.from(files)) {
-    const ext = file.name.split('.').pop() || 'jpg'
-    const path = `${id}/${crypto.randomUUID()}.${ext}`
-    const { error } = await supabase.storage.from('product-images').upload(path, file, { upsert: false })
-    if (error) continue
-    await $fetch(`/api/admin/products/${id}/images`, {
-      method: 'POST',
-      body: { path },
-    })
-  }
-  input.value = ''
+async function onProductImageSelected(path: string) {
+  if (!path) return
+  await $fetch(`/api/admin/products/${id}/images`, {
+    method: 'POST',
+    body: { path },
+  })
   await load()
 }
 
@@ -740,6 +914,10 @@ onMounted(async () => {
   await loadMetadata()
   await load()
 })
+
+onBeforeUnmount(() => {
+  stopScanner()
+})
 </script>
 
 <style scoped>
@@ -751,5 +929,56 @@ onMounted(async () => {
   overflow: hidden;
   padding: 0;
   cursor: pointer;
+}
+
+.product-description-editor {
+  margin-bottom: 16px;
+}
+
+.product-description-editor :deep(.rich-editor-content .rich-editor-input) {
+  min-height: 256px;
+}
+
+.scanner-video {
+  width: 100%;
+  min-height: 260px;
+  max-height: 380px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: #0f172a;
+  object-fit: cover;
+}
+
+.scanner-stage {
+  position: relative;
+}
+
+.scanner-guide {
+  pointer-events: none;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(86%, 420px);
+  height: min(54%, 180px);
+  transform: translate(-50%, -50%);
+  border: 2px solid rgba(34, 197, 94, 0.9);
+  border-radius: 10px;
+  box-shadow: 0 0 0 9999px rgba(2, 6, 23, 0.25);
+  overflow: hidden;
+}
+
+.scanner-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: rgba(34, 197, 94, 0.95);
+  box-shadow: 0 0 10px rgba(34, 197, 94, 0.75);
+  animation: scanner-line-move 1.8s linear infinite;
+}
+
+@keyframes scanner-line-move {
+  0% { top: 0; }
+  100% { top: calc(100% - 2px); }
 }
 </style>

@@ -4,7 +4,7 @@ import { applyOrderStock } from '~/server/utils/order-stock'
 
 export default defineEventHandler(async (event) => {
   const profile = await getProfileOrThrow(event)
-  requireRoles(profile, ['superadmin', 'admin'])
+  requireRoles(profile, ['superadmin'])
 
   const orderId = getRouterParam(event, 'id')
   if (!orderId)
