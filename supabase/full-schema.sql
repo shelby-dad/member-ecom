@@ -240,6 +240,140 @@ CREATE POLICY "stock_movements_all_service_role"
   ON stock_movements FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 
+-- 20260317000003_address_geo_tables.sql
+-- Address geo master tables: countries, states, and cities
+
+CREATE TABLE countries (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  code text NOT NULL UNIQUE,
+  name text NOT NULL UNIQUE,
+  is_active boolean NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE states (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  country_id uuid NOT NULL REFERENCES countries (id) ON DELETE CASCADE,
+  code text,
+  name text NOT NULL,
+  is_active boolean NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (country_id, name),
+  UNIQUE (country_id, code)
+);
+
+CREATE TABLE cities (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  country_id uuid NOT NULL REFERENCES countries (id) ON DELETE CASCADE,
+  state_id uuid NOT NULL REFERENCES states (id) ON DELETE CASCADE,
+  name text NOT NULL,
+  is_active boolean NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (state_id, name)
+);
+
+CREATE INDEX idx_states_country_id ON states (country_id);
+CREATE INDEX idx_cities_country_id ON cities (country_id);
+CREATE INDEX idx_cities_state_id ON cities (state_id);
+
+INSERT INTO countries (code, name, is_active)
+VALUES ('MM', 'Myanmar', true)
+ON CONFLICT (code) DO UPDATE SET
+  name = EXCLUDED.name,
+  is_active = true;
+
+-- 20260317000004_address_geo_seed_mm_regions.sql
+WITH mm AS (
+  SELECT id FROM countries WHERE code = 'MM' LIMIT 1
+)
+INSERT INTO states (country_id, code, name, is_active)
+SELECT mm.id, 'MM-YGN', 'Yangon Region', true
+FROM mm
+WHERE NOT EXISTS (
+  SELECT 1 FROM states s WHERE s.country_id = mm.id AND s.name = 'Yangon Region'
+);
+
+WITH mm AS (
+  SELECT id FROM countries WHERE code = 'MM' LIMIT 1
+)
+INSERT INTO states (country_id, code, name, is_active)
+SELECT mm.id, 'MM-MDY', 'Mandalay Region', true
+FROM mm
+WHERE NOT EXISTS (
+  SELECT 1 FROM states s WHERE s.country_id = mm.id AND s.name = 'Mandalay Region'
+);
+
+WITH ygn AS (
+  SELECT s.id, s.country_id
+  FROM states s
+  JOIN countries c ON c.id = s.country_id
+  WHERE c.code = 'MM' AND s.name = 'Yangon Region'
+  LIMIT 1
+),
+townships(name) AS (
+  VALUES
+    ('Ahlone'), ('Bahan'), ('Botahtaung'), ('Cocokyun'), ('Dagon'),
+    ('Dagon Myothit (East)'), ('Dagon Myothit (North)'), ('Dagon Myothit (Seikkan)'), ('Dagon Myothit (South)'),
+    ('Dala'), ('Dawbon'), ('Hlaing'), ('Hlaingthaya'), ('Hlegu'), ('Hmawbi'), ('Htantabin'),
+    ('Insein'), ('Kamayut'), ('Kawhmu'), ('Khayan'), ('Kungyangon'), ('Kyauktan'), ('Kyauktada'),
+    ('Kyeemyindaing'), ('Lanmadaw'), ('Latha'), ('Mayangon'), ('Mingala Taungnyunt'), ('Mingaladon'),
+    ('North Okkalapa'), ('Pabedan'), ('Pazundaung'), ('Sanchaung'), ('Seikkan'), ('Seikkyi Kanaungto'),
+    ('Shwepyitha'), ('South Okkalapa'), ('Taikkyi'), ('Tamwe'), ('Thanlyin'), ('Thingangyun'),
+    ('Thongwa'), ('Twante'), ('Yankin')
+)
+INSERT INTO cities (country_id, state_id, name, is_active)
+SELECT ygn.country_id, ygn.id, t.name, true
+FROM ygn
+CROSS JOIN townships t
+WHERE NOT EXISTS (
+  SELECT 1 FROM cities c WHERE c.state_id = ygn.id AND c.name = t.name
+);
+
+WITH mdy AS (
+  SELECT s.id, s.country_id
+  FROM states s
+  JOIN countries c ON c.id = s.country_id
+  WHERE c.code = 'MM' AND s.name = 'Mandalay Region'
+  LIMIT 1
+),
+townships(name) AS (
+  VALUES
+    ('Aungmyaythazan'), ('Amarapura'), ('Chanayethazan'), ('Chanmyathazi'), ('Kyaukpadaung'),
+    ('Kyaukse'), ('Madaya'), ('Mahaaungmye'), ('Mahlaing'), ('Meiktila'), ('Mogok'),
+    ('Myingyan'), ('Myittha'), ('Natogyi'), ('Ngazun'), ('Nyaung-U'), ('Patheingyi'),
+    ('Pyawbwe'), ('Pyigyidagun'), ('Pyin Oo Lwin'), ('Singu'), ('Sintgaing'),
+    ('Tada-U'), ('Taungtha'), ('Thabeikkyin'), ('Thazi'), ('Wundwin'), ('Yamethin')
+)
+INSERT INTO cities (country_id, state_id, name, is_active)
+SELECT mdy.country_id, mdy.id, t.name, true
+FROM mdy
+CROSS JOIN townships t
+WHERE NOT EXISTS (
+  SELECT 1 FROM cities c WHERE c.state_id = mdy.id AND c.name = t.name
+);
+
+ALTER TABLE countries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE states ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cities ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "countries_select_authenticated"
+  ON countries FOR SELECT TO authenticated USING (true);
+CREATE POLICY "states_select_authenticated"
+  ON states FOR SELECT TO authenticated USING (true);
+CREATE POLICY "cities_select_authenticated"
+  ON cities FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY "countries_all_service_role"
+  ON countries FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "states_all_service_role"
+  ON states FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "cities_all_service_role"
+  ON cities FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+
 -- 20250314000006_addresses.sql
 -- Member addresses (for checkout and order snapshot)
 
@@ -252,13 +386,19 @@ CREATE TABLE addresses (
   city text NOT NULL,
   state text,
   postal_code text,
-  country text NOT NULL DEFAULT 'TH',
+  country text NOT NULL DEFAULT 'Myanmar',
+  country_id uuid REFERENCES countries (id) ON DELETE SET NULL,
+  state_id uuid REFERENCES states (id) ON DELETE SET NULL,
+  city_id uuid REFERENCES cities (id) ON DELETE SET NULL,
   is_default boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE INDEX idx_addresses_user_id ON addresses (user_id);
+CREATE INDEX idx_addresses_country_id ON addresses (country_id);
+CREATE INDEX idx_addresses_state_id ON addresses (state_id);
+CREATE INDEX idx_addresses_city_id ON addresses (city_id);
 
 ALTER TABLE addresses ENABLE ROW LEVEL SECURITY;
 
@@ -282,6 +422,16 @@ CREATE POLICY "addresses_delete_own"
   ON addresses FOR DELETE
   TO authenticated
   USING (auth.uid() = user_id);
+
+UPDATE addresses
+SET country = 'Myanmar'
+WHERE country IS NULL OR btrim(country) = '' OR country = 'TH';
+
+UPDATE addresses a
+SET country_id = c.id
+FROM countries c
+WHERE c.code = 'MM'
+  AND a.country_id IS NULL;
 
 
 -- 20250314000007_orders.sql
@@ -551,6 +701,15 @@ CREATE TRIGGER products_updated_at
   FOR EACH ROW EXECUTE PROCEDURE set_updated_at();
 CREATE TRIGGER product_variants_updated_at
   BEFORE UPDATE ON product_variants
+  FOR EACH ROW EXECUTE PROCEDURE set_updated_at();
+CREATE TRIGGER countries_updated_at
+  BEFORE UPDATE ON countries
+  FOR EACH ROW EXECUTE PROCEDURE set_updated_at();
+CREATE TRIGGER states_updated_at
+  BEFORE UPDATE ON states
+  FOR EACH ROW EXECUTE PROCEDURE set_updated_at();
+CREATE TRIGGER cities_updated_at
+  BEFORE UPDATE ON cities
   FOR EACH ROW EXECUTE PROCEDURE set_updated_at();
 CREATE TRIGGER addresses_updated_at
   BEFORE UPDATE ON addresses

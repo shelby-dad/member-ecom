@@ -11,3 +11,8 @@ node_modules
 .env.test.local
 .env.test.production
 .env.test.staging
+.DS_Store
+dist
+build
+logs
+*.log

@@ -355,7 +355,7 @@ async function openVariantDialog(productRow: any) {
         trackStock: v?.track_stock !== false,
         stock: Number.isNaN(Number(v?.stock)) ? '-' : Number(v?.stock),
       }))
-      .filter(v => v.id && !Number.isNaN(v.price) && v.price > 0)
+      .filter((v: { id: string, price: number }) => v.id && !Number.isNaN(v.price) && v.price > 0)
   }
   finally {
     variantDialogLoading.value = false

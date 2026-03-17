@@ -3,39 +3,44 @@
     <h1 class="text-h4 mb-4">
       {{ product.name }}
     </h1>
-    <div class="product-media-wrap mb-4">
-      <div
-        v-if="selectedImagePath"
-        class="product-media-main"
-        @mouseenter="isImageHovering = true"
-        @mouseleave="isImageHovering = false"
-        @mousemove="onImageHoverMove"
-      >
-        <v-img :src="imageUrl(selectedImagePath)" class="product-main-image" contain />
-        <div v-if="isImageHovering" class="product-image-magnifier" :style="magnifierStyle" />
-      </div>
-      <div v-else class="catalog-image-placeholder product-media-main">
-        <v-icon size="32" class="mb-1">mdi-image-off-outline</v-icon>
-        <span>No product image</span>
-      </div>
-      <v-slide-group v-if="images.length > 1" class="mt-3" show-arrows>
-        <v-slide-group-item
-          v-for="(img, idx) in images"
-          :key="img.id"
-          v-slot="{ toggle }"
-        >
-          <button
-            type="button"
-            class="thumb-btn"
-            :class="{ 'thumb-btn--active': idx === selectedImageIndex }"
-            @click="() => { selectedImageIndex = idx; toggle() }"
+    <v-card class="mb-4">
+      <v-card-title>Product details</v-card-title>
+      <v-card-text>
+        <div class="product-media-wrap mb-4">
+          <div
+            v-if="selectedImagePath"
+            class="product-media-main"
+            @mouseenter="isImageHovering = true"
+            @mouseleave="isImageHovering = false"
+            @mousemove="onImageHoverMove"
           >
-            <v-img :src="imageUrl(img.path)" width="92" height="52" cover class="rounded" />
-          </button>
-        </v-slide-group-item>
-      </v-slide-group>
-    </div>
-    <div class="text-body-1 text-medium-emphasis mb-4 product-description" v-html="renderDescription(product.description)" />
+            <v-img :src="imageUrl(selectedImagePath)" class="product-main-image" contain />
+            <div v-if="isImageHovering" class="product-image-magnifier" :style="magnifierStyle" />
+          </div>
+          <div v-else class="catalog-image-placeholder product-media-main">
+            <v-icon size="32" class="mb-1">mdi-image-off-outline</v-icon>
+            <span>No product image</span>
+          </div>
+          <v-slide-group v-if="images.length > 1" class="mt-3" show-arrows>
+            <v-slide-group-item
+              v-for="(img, idx) in images"
+              :key="img.id"
+              v-slot="{ toggle }"
+            >
+              <button
+                type="button"
+                class="thumb-btn"
+                :class="{ 'thumb-btn--active': idx === selectedImageIndex }"
+                @click="() => { selectedImageIndex = idx; toggle() }"
+              >
+                <v-img :src="imageUrl(img.path)" width="92" height="52" cover class="rounded" />
+              </button>
+            </v-slide-group-item>
+          </v-slide-group>
+        </div>
+        <div class="text-body-1 text-medium-emphasis product-description" v-html="renderDescription(product.description)" />
+      </v-card-text>
+    </v-card>
     <v-card class="mb-4">
       <v-card-title>Variants</v-card-title>
       <v-table>

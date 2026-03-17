@@ -49,7 +49,7 @@
         </div>
       </v-app-bar-title>
 
-      <v-menu v-if="!isOnBehalf" location="bottom end">
+      <v-menu v-if="!isOnBehalf && shellRole !== 'member'" location="bottom end">
         <template #activator="{ props: menuProps }">
           <v-btn
             size="small"

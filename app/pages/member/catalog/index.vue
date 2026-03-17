@@ -91,7 +91,7 @@
 
     <v-row v-if="products.length">
       <v-col v-for="p in products" :key="p.id" cols="12" sm="6" lg="4">
-        <v-card class="app-card h-100" hover @click="goProduct(p.id)">
+        <v-card class="app-card h-100 catalog-product-card" hover @click="goProduct(p.id)">
           <div class="catalog-card-media">
             <v-img
               v-if="p.image_path"
@@ -104,28 +104,30 @@
               <span>No product image</span>
             </div>
           </div>
-          <v-card-title>{{ p.name }}</v-card-title>
-          <v-card-subtitle class="pt-0">
-            {{ formatPrice(p.min_price) }}
-          </v-card-subtitle>
-          <v-card-text>
-            <div class="catalog-description" v-html="renderDescription(p.description)" />
-          </v-card-text>
-          <v-card-actions>
-            <v-btn variant="flat" color="primary" size="small" @click.stop="goProduct(p.id)">
-              View
-            </v-btn>
-            <v-spacer />
-            <v-btn
-              icon
-              size="small"
-              class="catalog-cart-btn"
-              :loading="quickCartLoadingId === p.id"
-              @click.stop="quickAddFromCatalog(p)"
-            >
-              <v-icon size="18">mdi-cart-plus</v-icon>
-            </v-btn>
-          </v-card-actions>
+          <div class="catalog-card-content">
+            <v-card-title class="catalog-card-title">{{ p.name }}</v-card-title>
+            <v-card-subtitle class="pt-0">
+              {{ formatPrice(p.min_price) }}
+            </v-card-subtitle>
+            <v-card-text class="catalog-card-description-wrap">
+              <div class="catalog-description" v-html="renderDescription(p.description)" />
+            </v-card-text>
+            <v-card-actions class="catalog-card-actions">
+              <v-btn variant="flat" color="primary" size="small" @click.stop="goProduct(p.id)">
+                View
+              </v-btn>
+              <v-spacer />
+              <v-btn
+                icon
+                size="small"
+                class="catalog-cart-btn"
+                :loading="quickCartLoadingId === p.id"
+                @click.stop="quickAddFromCatalog(p)"
+              >
+                <v-icon size="18">mdi-cart-plus</v-icon>
+              </v-btn>
+            </v-card-actions>
+          </div>
         </v-card>
       </v-col>
     </v-row>
@@ -589,6 +591,13 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.catalog-product-card {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 460px;
+}
+
 .catalog-card-media {
   aspect-ratio: 16 / 9;
   display: flex;
@@ -596,6 +605,28 @@ onBeforeUnmount(() => {
   justify-content: center;
   background: rgba(148, 163, 184, 0.12);
   border-bottom: 1px solid rgba(148, 163, 184, 0.24);
+}
+
+.catalog-card-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.catalog-card-title {
+  min-height: 58px;
+  line-height: 1.28;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.catalog-card-description-wrap {
+  min-height: 88px;
+  max-height: 88px;
+  overflow: hidden;
 }
 
 .catalog-card-image {
@@ -631,6 +662,18 @@ onBeforeUnmount(() => {
 
 .catalog-description :deep(p:last-child) {
   margin-bottom: 0;
+}
+
+.catalog-description {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.catalog-card-actions {
+  margin-top: auto;
+  min-height: 56px;
 }
 
 .catalog-description :deep(a) {

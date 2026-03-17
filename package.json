@@ -16,7 +16,8 @@
     "test:e2e:ui": "playwright test --ui",
     "db:push": "npx supabase db push",
     "db:full-schema": "node scripts/gen-full-schema.mjs",
-    "db:seed": "node scripts/seed-users.mjs"
+    "db:seed": "node scripts/seed-users.mjs",
+    "clean:db": "node scripts/clean-db.mjs"
   },
   "dependencies": {
     "@mdi/font": "^7.4.47",

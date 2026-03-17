@@ -3,6 +3,7 @@ import { getProfileOrThrow, requireRoles } from '~/server/utils/auth'
 import { getServiceRoleClient } from '~/server/utils/supabase'
 import { applyOrderStock } from '~/server/utils/order-stock'
 import { resolvePromotionForOrder } from '~/server/utils/promotions'
+import { generateUniqueOrderNumber } from '~/server/utils/order-number'
 
 const bodySchema = z.object({
   user_id: z.string().uuid(),
@@ -112,6 +113,7 @@ export default defineEventHandler(async (event) => {
   const discountTotal = promotion.discount
   const total = Math.max(0, subtotal - discountTotal)
   const isCash = paymentMethod.type === 'cash'
+  const isBankTransfer = paymentMethod.type === 'bank_transfer'
   const isWallet = paymentMethod.type === 'wallet'
   const isCod = paymentMethod.type === 'cod'
   if (isWallet) {
@@ -128,7 +130,7 @@ export default defineEventHandler(async (event) => {
     if (total > Number(walletRow?.wallet_balance ?? 0))
       throw createError({ statusCode: 400, message: 'Member wallet balance is insufficient.' })
   }
-  const orderNumber = 'ORD-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).slice(2, 7)
+  const orderNumber = await generateUniqueOrderNumber(supabase)
 
   const { data: order, error: orderError } = await supabase
     .from('orders')
@@ -136,8 +138,8 @@ export default defineEventHandler(async (event) => {
       order_number: orderNumber,
       user_id: parsed.data.user_id,
       branch_id: parsed.data.branch_id ?? null,
-      status: (isCash || isWallet) ? 'confirmed' : 'pending',
-      payment_status: (isCash || isWallet) ? 'paid' : 'pending',
+      status: (isCash || isBankTransfer) ? 'delivered' : ((isWallet || isCod) ? 'confirmed' : 'pending'),
+      payment_status: (isCash || isBankTransfer || isWallet) ? 'paid' : 'pending',
       payment_method_type: paymentMethod.type,
       shipping_name: parsed.data.shipping_name ?? null,
       shipping_line1: parsed.data.shipping_line1 ?? null,
@@ -200,9 +202,9 @@ export default defineEventHandler(async (event) => {
       amount: total,
       transaction_id: parsed.data.transaction_id?.trim() || null,
       slip_path: parsed.data.slip_path?.trim() || null,
-      status: (isCash || isWallet) ? 'verified' : 'pending',
-      verified_at: (isCash || isWallet) ? new Date().toISOString() : null,
-      verified_by: (isCash || isWallet) ? profile.id : null,
+      status: (isCash || isBankTransfer || isWallet) ? 'verified' : 'pending',
+      verified_at: (isCash || isBankTransfer || isWallet) ? new Date().toISOString() : null,
+      verified_by: (isCash || isBankTransfer || isWallet) ? profile.id : null,
       notes: isCod ? 'Cash on delivery' : (isCash ? 'Paid by cash at POS' : null),
     })
 

@@ -8,15 +8,11 @@
         <v-card class="mb-4">
           <v-card-title>Member</v-card-title>
           <v-card-text>
-            <v-autocomplete
+            <MemberSelectField
               v-model="selectedMember"
-              :items="members"
-              item-title="email"
-              item-value="id"
               label="Select member"
               variant="outlined"
-              :loading="loadingMembers"
-              @update:model-value="onSelectMember"
+              @update:member="onSelectMember"
             />
             <p v-if="selectedMemberProfile" class="text-caption mt-2">
               {{ selectedMemberProfile.full_name || selectedMemberProfile.email }}
@@ -116,7 +112,7 @@
                 <strong class="text-h6">{{ formatPrice(finalTotal) }}</strong>
               </div>
             </div>
-            <v-btn color="primary" class="mt-3" :disabled="!canCheckout" :loading="creating" @click="createOrder">
+            <v-btn color="primary" class="mt-3" :disabled="!canCheckout" :loading="creating" @click="onCompleteSale">
               Complete sale
             </v-btn>
           </v-card-text>
@@ -253,6 +249,97 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+    <VariantPickerDialog
+      v-model="showBarcodeVariantDialog"
+      :product-name="barcodeVariantProductName"
+      :variants="barcodeVariantOptions"
+      @select="addScannedVariantToCart"
+    />
+    <v-dialog v-model="showBankTransferDialog" max-width="560">
+      <v-card>
+        <v-card-title>Bank transfer checkout</v-card-title>
+        <v-card-text class="checkout-modal-body">
+          <div class="mb-2"><strong>Total amount:</strong> {{ formatPrice(finalTotal) }}</div>
+          <div class="mb-2"><strong>Payment Name:</strong> {{ selectedPaymentMethod?.name || '-' }}</div>
+          <div class="mb-2"><strong>Account Name:</strong> {{ selectedPaymentMethod?.account_name || '-' }}</div>
+          <div class="mb-2"><strong>Account Number:</strong> {{ selectedPaymentMethod?.account_number || '-' }}</div>
+          <div class="mb-3">
+            <strong>QR:</strong>
+            <div class="mt-2">
+              <v-img
+                v-if="selectedPaymentMethodQrUrl"
+                :src="selectedPaymentMethodQrUrl"
+                max-width="220"
+                max-height="220"
+                class="rounded border"
+                cover
+              />
+              <span v-else>-</span>
+            </div>
+          </div>
+          <v-text-field
+            v-model="bankTransferTransactionId"
+            label="Transaction ID (optional)"
+            variant="outlined"
+            density="comfortable"
+          />
+        </v-card-text>
+        <v-card-actions class="checkout-modal-actions">
+          <v-spacer />
+          <v-btn variant="text" :disabled="creating" @click="showBankTransferDialog = false">
+            Cancel
+          </v-btn>
+          <v-btn color="primary" :loading="creating" @click="confirmBankTransferCheckout">
+            Checkout
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+    <v-dialog v-model="showCashCheckoutDialog" max-width="460">
+      <v-card>
+        <v-card-title>Cash checkout</v-card-title>
+        <v-card-text class="checkout-modal-body">
+          <div class="mb-2 d-flex align-center justify-space-between">
+            <span class="text-medium-emphasis">Receive Amount</span>
+            <strong>{{ cashReceiveAmount > 0 ? formatPrice(cashReceiveAmount) : '-' }}</strong>
+          </div>
+          <div class="mb-2 d-flex align-center justify-space-between">
+            <span class="text-medium-emphasis">Total amount</span>
+            <strong>{{ formatPrice(finalTotal) }}</strong>
+          </div>
+          <div class="mb-3 d-flex align-center justify-space-between">
+            <span class="text-medium-emphasis">Change Amount</span>
+            <strong>{{ formatPrice(cashChangeAmount) }}</strong>
+          </div>
+          <v-text-field
+            v-model="cashReceiveInput"
+            label="Receive Amount"
+            variant="outlined"
+            density="comfortable"
+            readonly
+            class="mb-2"
+          />
+          <div class="cash-pad-wrap">
+            <div class="cash-pad">
+              <v-btn v-for="key in cashPadKeys" :key="key" variant="outlined" class="cash-pad-btn" @click="onCashPadKey(key)">
+                {{ key }}
+              </v-btn>
+              <v-btn variant="outlined" color="warning" class="cash-pad-btn" @click="cashReceiveInput = ''">C</v-btn>
+              <v-btn variant="outlined" class="cash-pad-btn" icon="mdi-backspace-outline" @click="onCashPadBackspace" />
+            </div>
+          </div>
+        </v-card-text>
+        <v-card-actions class="checkout-modal-actions">
+          <v-spacer />
+          <v-btn variant="text" :disabled="creating" @click="showCashCheckoutDialog = false">
+            Cancel
+          </v-btn>
+          <v-btn color="primary" :loading="creating" :disabled="cashReceiveAmount < finalTotal" @click="confirmCashCheckout">
+            Checkout
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
     <v-snackbar v-model="snack" :color="snackSuccess ? 'success' : 'error'">
       {{ snackMsg }}
     </v-snackbar>
@@ -265,12 +352,18 @@ const { formatPrice } = usePricingFormat()
 
 const supabase = useSupabaseClient()
 const config = useRuntimeConfig()
-const members = ref<any[]>([])
-const loadingMembers = ref(false)
 const selectedMember = ref<string | null>(null)
 const selectedMemberProfile = ref<any>(null)
 const selectedPaymentMethodId = ref<string | null>(null)
-const paymentMethods = ref<Array<{ id: string; name: string; type: 'wallet' | 'bank_transfer' | 'cash' | 'cod'; display_name: string }>>([])
+const paymentMethods = ref<Array<{
+  id: string
+  name: string
+  type: 'wallet' | 'bank_transfer' | 'cash' | 'cod'
+  account_name?: string | null
+  account_number?: string | null
+  image_path?: string | null
+  display_name: string
+}>>([])
 const loadingPaymentMethods = ref(false)
 const promotions = ref<any[]>([])
 const selectedPromoId = ref<string | null>(null)
@@ -294,6 +387,13 @@ const creating = ref(false)
 const snack = ref(false)
 const snackSuccess = ref(false)
 const snackMsg = ref('')
+const showBarcodeVariantDialog = ref(false)
+const barcodeVariantProductName = ref('')
+const barcodeVariantOptions = ref<any[]>([])
+const showBankTransferDialog = ref(false)
+const bankTransferTransactionId = ref('')
+const showCashCheckoutDialog = ref(false)
+const cashReceiveInput = ref('')
 const showScannerDialog = ref(false)
 const scannerError = ref('')
 const scannerImageLoading = ref(false)
@@ -319,6 +419,17 @@ const promoDiscount = computed(() => {
 })
 const finalTotal = computed(() => Math.max(0, posTotal.value - promoDiscount.value))
 const selectedPaymentMethod = computed(() => paymentMethods.value.find(p => p.id === selectedPaymentMethodId.value) ?? null)
+const selectedPaymentMethodQrUrl = computed(() => {
+  const path = String(selectedPaymentMethod.value?.image_path ?? '').trim()
+  return path ? toPublicProductImageUrl(path) : ''
+})
+const cashPadKeys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0']
+const cashReceiveAmount = computed(() => {
+  const normalized = String(cashReceiveInput.value ?? '').replace(/[^0-9.]/g, '')
+  const n = Number(normalized)
+  return Number.isFinite(n) && n > 0 ? n : 0
+})
+const cashChangeAmount = computed(() => Math.max(0, Number((cashReceiveAmount.value - finalTotal.value).toFixed(2))))
 const canCheckout = computed(() => {
   if (!selectedMember.value || !selectedPaymentMethodId.value || !posCart.value.length)
     return false
@@ -358,10 +469,18 @@ function productVariantLabel(item: { product_name: string; variant_name: string 
 }
 
 function productImageUrl(variant: any) {
+  const variantImage = variantOptionImagePath(variant)
+  if (variantImage)
+    return toPublicProductImageUrl(variantImage)
+
   const productId = variant?.products?.id as string | undefined
   if (!productId) return ''
   const path = productImageById.value[productId]
   if (!path) return ''
+  return toPublicProductImageUrl(path)
+}
+
+function toPublicProductImageUrl(path: string) {
   if (path.startsWith('http://') || path.startsWith('https://'))
     return path
   const base = config.public.supabaseUrl as string
@@ -384,15 +503,35 @@ function firstOptionImagePath(optionSets: any): string {
   return ''
 }
 
-async function loadMembers() {
-  loadingMembers.value = true
-  try {
-    const data = await $fetch<any[]>('/api/pos/members')
-    members.value = data ?? []
+function variantOptionImagePath(variant: any): string {
+  const optionSets = Array.isArray(variant?.products?.option_sets) ? variant.products.option_sets : []
+  const imageSets = optionSets.filter((set: any) => (set?.type ?? 'text') === 'image')
+  if (!imageSets.length)
+    return ''
+
+  const variantTokens = String(variant?.name ?? '')
+    .split('/')
+    .map((token: string) => token.trim().toLowerCase())
+    .filter(Boolean)
+
+  if (!variantTokens.length)
+    return ''
+
+  for (const set of imageSets) {
+    const values = Array.isArray(set?.values) ? set.values : []
+    for (const raw of values) {
+      const label = String(raw?.label ?? '').trim().toLowerCase()
+      const value = typeof raw === 'string'
+        ? raw.trim()
+        : String(raw?.value ?? '').trim()
+      if (!label || !value)
+        continue
+      if (variantTokens.includes(label))
+        return value
+    }
   }
-  finally {
-    loadingMembers.value = false
-  }
+
+  return ''
 }
 
 async function loadPaymentMethods() {
@@ -400,7 +539,7 @@ async function loadPaymentMethods() {
   try {
     const { data } = await supabase
       .from('payment_methods')
-      .select('id, name, type')
+      .select('id, name, type, account_name, account_number, image_path')
       .eq('is_active', true)
       .order('sort_order', { ascending: true })
       .order('created_at', { ascending: true })
@@ -408,8 +547,7 @@ async function loadPaymentMethods() {
       ...m,
       display_name: `${m.name} (${String(m.type || '').replace('_', ' ')})`,
     }))
-    if (selectedMember.value && posCart.value.length)
-      applyCashDefaultIfNeeded()
+    applyCashDefaultIfNeeded()
   }
   finally {
     loadingPaymentMethods.value = false
@@ -421,14 +559,12 @@ async function loadPromotions() {
   promotions.value = data ?? []
 }
 
-function onSelectMember(id: string | null) {
-  if (!id) {
+function onSelectMember(member: any | null) {
+  if (!member) {
     selectedMemberProfile.value = null
     return
   }
-  selectedMemberProfile.value = members.value.find(m => m.id === id) ?? null
-  if (posCart.value.length)
-    applyCashDefaultIfNeeded()
+  selectedMemberProfile.value = member
 }
 
 function getCashPaymentMethodId() {
@@ -439,7 +575,9 @@ function applyCashDefaultIfNeeded() {
   const cashId = getCashPaymentMethodId()
   if (!cashId)
     return
-  selectedPaymentMethodId.value = cashId
+  const hasSelected = paymentMethods.value.some(method => method.id === selectedPaymentMethodId.value)
+  if (!hasSelected)
+    selectedPaymentMethodId.value = cashId
 }
 
 async function loadVariants() {
@@ -602,13 +740,51 @@ function humanizeScannerError(error: any) {
 async function addScannedBarcodeToCart(code: string) {
   const cleaned = code.trim()
   if (!cleaned) return
-  const variant = await $fetch<any>('/api/pos/barcode', { query: { code: cleaned } })
-  if (!variant) {
-    snackMsg.value = 'No product found for scanned barcode.'
+  let payload: any
+  try {
+    payload = await $fetch<any>('/api/pos/barcode', { query: { code: cleaned } })
+  }
+  catch {
+    snackMsg.value = 'Barcode invalid'
     snackSuccess.value = false
     snack.value = true
     return
   }
+
+  if (!payload?.product || !Array.isArray(payload.variants)) {
+    snackMsg.value = 'Barcode invalid'
+    snackSuccess.value = false
+    snack.value = true
+    return
+  }
+
+  const variants = payload.variants
+    .filter((variant: any) => !payload.product.has_variants || Number(variant.price ?? 0) > 0)
+    .map((variant: any) => ({
+      ...variant,
+      products: payload.product,
+    }))
+
+  if (!variants.length) {
+    snackMsg.value = 'No purchasable variants for this product.'
+    snackSuccess.value = false
+    snack.value = true
+    return
+  }
+
+  if (payload.product.has_variants) {
+    barcodeVariantProductName.value = String(payload.product.name ?? '')
+    barcodeVariantOptions.value = variants
+    showBarcodeVariantDialog.value = true
+    return
+  }
+
+  const candidate = variants.find((variant: any) => !variant.track_stock || Number(variant.available_stock ?? 0) > 0) ?? variants[0]
+  addToPosCart(candidate)
+}
+
+function addScannedVariantToCart(variant: any) {
+  showBarcodeVariantDialog.value = false
   addToPosCart(variant)
 }
 
@@ -705,8 +881,81 @@ async function onBarcodeImageSelected(e: Event) {
   }
 }
 
-async function createOrder() {
+function onCompleteSale() {
+  if (!canCheckout.value)
+    return
+  if (selectedPaymentMethod.value?.type === 'cash') {
+    showCashCheckoutDialog.value = true
+    return
+  }
+  if (selectedPaymentMethod.value?.type === 'bank_transfer') {
+    showBankTransferDialog.value = true
+    return
+  }
+  createOrder()
+}
+
+function confirmBankTransferCheckout() {
+  createOrder({ transactionId: bankTransferTransactionId.value.trim() || undefined })
+}
+
+function onCashPadKey(key: string) {
+  if (key === '.') {
+    if (!cashReceiveInput.value.includes('.'))
+      cashReceiveInput.value = cashReceiveInput.value || '0.'
+    return
+  }
+  const next = `${cashReceiveInput.value}${key}`
+  const dotIndex = next.indexOf('.')
+  if (dotIndex >= 0 && next.length - dotIndex - 1 > 2)
+    return
+  cashReceiveInput.value = next
+}
+
+function onCashPadBackspace() {
+  cashReceiveInput.value = cashReceiveInput.value.slice(0, -1)
+}
+
+function onCashModalKeydown(event: KeyboardEvent) {
+  if (!showCashCheckoutDialog.value)
+    return
+
+  const key = event.key
+  if (/^[0-9]$/.test(key)) {
+    event.preventDefault()
+    onCashPadKey(key)
+    return
+  }
+  if (key === '.') {
+    event.preventDefault()
+    onCashPadKey('.')
+    return
+  }
+  if (key === 'Backspace' || key === 'Delete') {
+    event.preventDefault()
+    onCashPadBackspace()
+    return
+  }
+  if (key === 'Enter') {
+    event.preventDefault()
+    confirmCashCheckout()
+    return
+  }
+  if (key === 'Escape') {
+    event.preventDefault()
+    showCashCheckoutDialog.value = false
+  }
+}
+
+function confirmCashCheckout() {
+  if (cashReceiveAmount.value < finalTotal.value)
+    return
+  createOrder()
+}
+
+async function createOrder(options?: { transactionId?: string }) {
   if (!selectedMember.value || !selectedPaymentMethodId.value || !posCart.value.length) return
+  const methodType = selectedPaymentMethod.value?.type
   if (selectedPaymentMethod.value?.type === 'wallet') {
     const balance = Number(selectedMemberProfile.value?.wallet_balance ?? 0)
     if (!Number.isFinite(balance) || finalTotal.value > balance) {
@@ -722,6 +971,7 @@ async function createOrder() {
     const body = {
       user_id: selectedMember.value,
       payment_method_id: selectedPaymentMethodId.value,
+      transaction_id: options?.transactionId ?? undefined,
       promo_id: selectedPromoId.value ?? null,
       items: posCart.value.map(i => ({
         variant_id: i.variant_id,
@@ -732,12 +982,16 @@ async function createOrder() {
       })),
     }
     await $fetch('/api/pos/orders', { method: 'POST', body })
-    snackMsg.value = 'Order created.'
+    snackMsg.value = (methodType === 'cash' || methodType === 'bank_transfer') ? 'Sale Completed' : 'Order Created'
     snackSuccess.value = true
     snack.value = true
     posCart.value = []
     selectedPaymentMethodId.value = null
     selectedPromoId.value = null
+    showBankTransferDialog.value = false
+    bankTransferTransactionId.value = ''
+    showCashCheckoutDialog.value = false
+    cashReceiveInput.value = ''
   }
   catch (e: any) {
     const statusCode = Number(e?.statusCode ?? e?.response?.status ?? 0)
@@ -758,10 +1012,10 @@ async function createOrder() {
 }
 
 onMounted(() => {
-  loadMembers()
   loadPaymentMethods()
   loadPromotions()
   loadVariants()
+  window.addEventListener('keydown', onCashModalKeydown)
 })
 
 watch(productSearch, () => {
@@ -786,6 +1040,7 @@ onBeforeUnmount(() => {
   if (searchTimer)
     clearTimeout(searchTimer)
   stopScanner()
+  window.removeEventListener('keydown', onCashModalKeydown)
 })
 </script>
 
@@ -874,6 +1129,42 @@ onBeforeUnmount(() => {
 
 .qty-plus-btn :deep(.v-icon) {
   color: rgb(var(--v-theme-success));
+}
+
+.cash-pad-wrap {
+  display: flex;
+  justify-content: center;
+}
+
+.cash-pad {
+  display: grid;
+  grid-template-columns: repeat(3, 64px);
+  gap: 14px;
+  justify-content: center;
+}
+
+.cash-pad-btn {
+  width: 64px;
+  min-width: 64px;
+  height: 64px;
+  border-radius: 999px;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.checkout-modal-body {
+  max-height: min(60vh, 520px);
+  overflow-y: auto;
+  padding-bottom: 90px;
+}
+
+.checkout-modal-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  padding: 14px 16px 18px;
+  background: rgb(var(--v-theme-surface));
+  border-top: 1px solid rgba(148, 163, 184, 0.3);
 }
 
 .scanner-stage {

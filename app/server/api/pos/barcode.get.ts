@@ -66,7 +66,14 @@ export default defineEventHandler(async (event) => {
       option_sets: product.option_sets,
     },
   }))
-
-  const candidate = normalized.find(v => !v.track_stock || v.available_stock > 0) ?? normalized[0]
-  return candidate
+  return {
+    product: {
+      id: product.id,
+      name: product.name,
+      has_variants: product.has_variants,
+      track_stock: product.track_stock,
+      option_sets: product.option_sets,
+    },
+    variants: normalized,
+  }
 })

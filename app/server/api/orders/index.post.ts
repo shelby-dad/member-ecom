@@ -3,6 +3,7 @@ import { getProfileOrThrow } from '~/server/utils/auth'
 import { getServiceRoleClient } from '~/server/utils/supabase'
 import { applyOrderStock } from '~/server/utils/order-stock'
 import { resolvePromotionForOrder } from '~/server/utils/promotions'
+import { generateUniqueOrderNumber } from '~/server/utils/order-number'
 
 const bodySchema = z.object({
   payment_method_id: z.string().uuid(),
@@ -126,7 +127,7 @@ export default defineEventHandler(async (event) => {
     if (total > balance)
       throw createError({ statusCode: 400, message: 'Wallet balance is insufficient.' })
   }
-  const orderNumber = 'ORD-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).slice(2, 7)
+  const orderNumber = await generateUniqueOrderNumber(supabase)
   const isWallet = paymentMethod.type === 'wallet'
   const isCod = paymentMethod.type === 'cod'
 
