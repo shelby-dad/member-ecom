@@ -4,6 +4,7 @@ export interface Profile {
   id: string
   email: string
   full_name: string | null
+  mobile_number: string | null
   avatar_url: string | null
   role: AppRole
   branch_id: string | null
@@ -25,7 +26,7 @@ export function useProfile() {
     }
     const { data, error } = await supabase
       .from('profiles')
-      .select('id, email, full_name, avatar_url, role, branch_id, status, wallet_balance, created_at, updated_at')
+      .select('id, email, full_name, mobile_number, avatar_url, role, branch_id, status, wallet_balance, created_at, updated_at')
       .eq('id', user.value.id)
       .maybeSingle()
     if (error) {

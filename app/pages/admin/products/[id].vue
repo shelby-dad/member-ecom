@@ -117,7 +117,7 @@
                 style="max-width: 220px"
               />
               <v-spacer />
-              <v-btn icon variant="text" size="small" @click="optionSetsLocal.splice(idx, 1)">
+              <v-btn icon variant="text" size="small" @click="requestDeleteOptionSet(idx)">
                 <v-icon>mdi-delete</v-icon>
               </v-btn>
             </div>
@@ -187,7 +187,7 @@
               Add color option
             </v-btn>
           </div>
-          <v-btn v-if="optionSetsChanged" color="primary" size="small" class="mt-2 ml-2" @click="saveOptionSets">
+          <v-btn v-if="optionSetsChanged" color="primary" size="small" class="mt-2 ml-2" :loading="generating" @click="saveOptionSets">
             Save option sets
           </v-btn>
         </template>
@@ -196,7 +196,7 @@
     <v-card class="mb-4">
       <v-card-title>Images</v-card-title>
       <v-card-text>
-        <div class="d-flex flex-wrap gap-2 mb-3">
+        <div class="d-flex flex-wrap ga-3 mb-3">
           <div v-for="img in images" :key="img.id" class="d-flex flex-column align-center">
             <v-img :src="imageUrl(img.path)" width="80" height="80" cover class="rounded" />
             <v-btn icon size="x-small" variant="text" class="mt-1" @click="deleteImage(img.id)">
@@ -215,11 +215,8 @@
       </v-card-text>
     </v-card>
     <v-card>
-      <v-card-title class="d-flex align-center flex-wrap gap-2">
+      <v-card-title class="d-flex align-center flex-wrap ga-3">
         Variants
-        <v-btn color="primary" size="small" @click="showVariant = true">
-          Add variant
-        </v-btn>
         <template v-if="product.has_variants && product.option_sets?.length">
           <v-btn variant="outlined" size="small" :loading="generating" @click="generateVariants">
             Generate from options
@@ -235,6 +232,9 @@
           </v-btn>
           <v-btn variant="text" size="small" @click="selectedIds = []">
             Clear
+          </v-btn>
+          <v-btn color="error" variant="tonal" size="small" :loading="bulkDeleting" @click="deleteSelectedVariants">
+            Remove variants
           </v-btn>
         </template>
       </v-card-title>
@@ -328,22 +328,6 @@
         </v-table>
       </v-card-text>
     </v-card>
-    <v-dialog v-model="showVariant" max-width="500" persistent>
-      <v-card>
-        <v-card-title>New variant</v-card-title>
-        <v-card-text>
-          <v-text-field v-model="variantForm.name" label="Name" variant="outlined" class="mb-2" />
-          <v-text-field v-model="variantForm.sku" label="SKU (optional, auto-generate if empty)" variant="outlined" class="mb-2" />
-          <v-text-field v-model.number="variantForm.price" label="Price" type="number" step="0.01" variant="outlined" />
-          <v-checkbox v-model="variantForm.track_stock" label="Track stock for this variant" />
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn variant="text" @click="showVariant = false">Cancel</v-btn>
-          <v-btn color="primary" :loading="saving" @click="addVariant">Add</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
   </div>
   <div v-else class="text-center py-8">
     <v-progress-circular indeterminate />
@@ -416,6 +400,21 @@
       </v-card-actions>
     </v-card>
   </v-dialog>
+  <v-dialog v-model="showDeleteOptionDialog" max-width="460" persistent>
+    <v-card>
+      <v-card-title>Delete Option Set</v-card-title>
+      <v-card-text>
+        <p class="mb-0">
+          Delete option set <strong>{{ optionSetPendingDeleteName }}</strong>? Variants using this option will be removed after saving option sets.
+        </p>
+      </v-card-text>
+      <v-card-actions>
+        <v-spacer />
+        <v-btn variant="text" @click="cancelDeleteOptionSet">Cancel</v-btn>
+        <v-btn color="error" @click="confirmDeleteOptionSet">Delete</v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
 </template>
 
 <script setup lang="ts">
@@ -439,14 +438,15 @@ const optionSetsLocal = ref<Array<{
   valuesText: string
   entries: Array<{ label: string; value: string }>
 }>>([])
-const showVariant = ref(false)
-const saving = ref(false)
 const generating = ref(false)
 const generatingBarcode = ref(false)
 const bulkSaving = ref(false)
+const bulkDeleting = ref(false)
 const bulkPrice = ref<string>('')
 const bulkStock = ref<string>('')
 const selectedIds = ref<string[]>([])
+const showDeleteOptionDialog = ref(false)
+const pendingDeleteOptionIndex = ref<number | null>(null)
 const showScannerDialog = ref(false)
 const scannerError = ref('')
 const scannerImageLoading = ref(false)
@@ -454,7 +454,6 @@ const scannerVideoRef = ref<HTMLVideoElement | null>(null)
 const scannerImageInputRef = ref<HTMLInputElement | null>(null)
 let scannerControls: { stop: () => void } | null = null
 let scannerReader: any = null
-const variantForm = reactive({ name: '', sku: '', price: 0, track_stock: true })
 const showImagePicker = ref(false)
 const showProductImagePicker = ref(false)
 const pickerTarget = ref<{ optionIdx: number; entryIdx: number } | null>(null)
@@ -469,6 +468,11 @@ const optionTypeItems = [
   { title: 'Image', value: 'image' },
   { title: 'Color', value: 'color' },
 ]
+const optionSetPendingDeleteName = computed(() => {
+  const idx = pendingDeleteOptionIndex.value
+  if (idx === null) return ''
+  return optionSetsLocal.value[idx]?.name || 'this option'
+})
 
 const optionColumns = computed(() => {
   const sets = product.value?.option_sets as Array<{ name: string }> | undefined
@@ -548,6 +552,27 @@ function addOptionSet(type: 'text' | 'image' | 'color') {
     valuesText: '',
     entries: type === 'text' ? [] : [{ label: '', value: type === 'color' ? '#000000' : '' }],
   })
+}
+
+function requestDeleteOptionSet(idx: number) {
+  pendingDeleteOptionIndex.value = idx
+  showDeleteOptionDialog.value = true
+}
+
+function confirmDeleteOptionSet() {
+  const idx = pendingDeleteOptionIndex.value
+  if (idx === null) {
+    showDeleteOptionDialog.value = false
+    return
+  }
+  optionSetsLocal.value.splice(idx, 1)
+  pendingDeleteOptionIndex.value = null
+  showDeleteOptionDialog.value = false
+}
+
+function cancelDeleteOptionSet() {
+  pendingDeleteOptionIndex.value = null
+  showDeleteOptionDialog.value = false
 }
 
 function optionValueForColumn(optionName: string, optionValue?: string) {
@@ -776,33 +801,35 @@ function humanizeScannerError(error: any) {
   return msg
 }
 
-function saveOptionSets() {
+async function saveOptionSets() {
+  const previousOptionNames = normalizeOptionSetsFromApi(product.value?.option_sets).map(s => s.name)
   const sets = buildOptionSetsPayload()
-  product.value.option_sets = sets
-  updateProduct()
-}
+  const nextOptionNames = sets.map((s: any) => String(s?.name ?? '').trim()).filter(Boolean)
+  const removedOptionNames = previousOptionNames.filter(name => !nextOptionNames.includes(name))
 
-async function addVariant() {
-  saving.value = true
-  try {
-    await $fetch(`/api/admin/products/${id}/variants`, {
+  if (removedOptionNames.length) {
+    await $fetch(`/api/admin/products/${id}/variants/remove-by-options`, {
       method: 'POST',
-      body: {
-        name: variantForm.name,
-        sku: variantForm.sku || undefined,
-        price: variantForm.price,
-        track_stock: variantForm.track_stock,
-      },
+      body: { option_names: removedOptionNames },
     })
-    showVariant.value = false
-    variantForm.name = ''
-    variantForm.sku = ''
-    variantForm.price = 0
-    variantForm.track_stock = true
+  }
+
+  product.value.option_sets = sets
+  await updateProduct()
+  if (!sets.length) {
+    await load()
+    return
+  }
+  generating.value = true
+  try {
+    await $fetch(`/api/admin/products/${id}/variants/generate`, {
+      method: 'POST',
+      body: { option_sets: sets },
+    })
     await load()
   }
   finally {
-    saving.value = false
+    generating.value = false
   }
 }
 
@@ -846,6 +873,22 @@ async function applyBulkEdit() {
   }
   finally {
     bulkSaving.value = false
+  }
+}
+
+async function deleteSelectedVariants() {
+  if (!selectedIds.value.length) return
+  bulkDeleting.value = true
+  try {
+    await $fetch(`/api/admin/products/${id}/variants/bulk-delete`, {
+      method: 'POST',
+      body: { variant_ids: selectedIds.value },
+    })
+    selectedIds.value = []
+    await load()
+  }
+  finally {
+    bulkDeleting.value = false
   }
 }
 

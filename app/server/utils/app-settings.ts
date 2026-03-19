@@ -4,14 +4,21 @@ import { getServiceRoleClient } from '~/server/utils/supabase'
 export type BarcodeType = 'code128' | 'ean13' | 'upca'
 
 export interface AppSettingsRow {
+  site_name: string | null
+  site_favicon_original: string | null
+  site_favicon_64: string | null
+  site_favicon_84: string | null
+  site_favicon_512: string | null
   pricing_sign: string
   pricing_symbol: string
   pricing_label: string
   pricing_decimals: number
   pricing_symbol_position: 'before' | 'after'
+  shop_logo: string | null
+  shop_name: string | null
   shop_address: string | null
   shop_email: string | null
-  shop_location: string | null
+  mobile_number: string | null
   barcode_type: BarcodeType
   smtp_host: string | null
   smtp_port: number | null
@@ -23,14 +30,21 @@ export interface AppSettingsRow {
 }
 
 export const defaultAppSettings: AppSettingsRow = {
+  site_name: null,
+  site_favicon_original: null,
+  site_favicon_64: null,
+  site_favicon_84: null,
+  site_favicon_512: null,
   pricing_sign: '',
   pricing_symbol: '฿',
   pricing_label: 'Price',
   pricing_decimals: 2,
   pricing_symbol_position: 'before',
+  shop_logo: null,
+  shop_name: null,
   shop_address: null,
   shop_email: null,
-  shop_location: null,
+  mobile_number: null,
   barcode_type: 'code128',
   smtp_host: null,
   smtp_port: null,

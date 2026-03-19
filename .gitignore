@@ -16,3 +16,4 @@ dist
 build
 logs
 *.log
+coverage

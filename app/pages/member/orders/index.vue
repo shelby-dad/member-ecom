@@ -4,38 +4,62 @@
       My orders
     </h1>
 
-    <div class="d-flex align-center ga-2 mb-3 flex-wrap">
-      <v-text-field
-        v-model="search"
-        label="Search"
-        variant="outlined"
-        density="compact"
-        hide-details
-        clearable
-        prepend-inner-icon="mdi-magnify"
-        style="max-width: 360px"
-      />
-      <v-select
-        v-model="statusFilter"
-        :items="statusOptions"
-        item-title="title"
-        item-value="value"
-        label="Status"
-        variant="outlined"
-        density="compact"
-        hide-details
-        clearable
-        style="max-width: 220px"
-      />
-      <DateRangePickerField
-        v-model="dateRange"
-        label="Date range"
-        max-width="250px"
-        value-format="ymd"
-      />
-    </div>
+    <AppDataTableToolbar card-class="mb-3">
+      <template #filters>
+        <v-col cols="12" sm="6" md="4">
+          <v-text-field
+            v-model="search"
+            label="Search"
+            variant="outlined"
+            density="compact"
+            hide-details
+            clearable
+            prepend-inner-icon="mdi-magnify"
+            class="app-filter-field"
+            @click:clear="onSearchClear"
+          />
+        </v-col>
+        <v-col cols="12" sm="6" md="4">
+          <v-select
+            v-model="statusFilter"
+            :items="statusOptions"
+            item-title="title"
+            item-value="value"
+            label="Status"
+            variant="outlined"
+            density="compact"
+            hide-details
+            clearable
+            class="app-filter-field"
+          />
+        </v-col>
+        <v-col cols="12" sm="6" md="4">
+          <DateRangePickerField
+            v-model="dateRange"
+            label="Date range"
+            max-width="100%"
+            value-format="ymd"
+            :emit-on-close="true"
+            class="app-filter-field"
+          />
+        </v-col>
+      </template>
+    </AppDataTableToolbar>
+
+    <v-card v-if="loading && !orders.length" class="mb-4">
+      <v-card-text>
+        <v-skeleton-loader type="table-heading" class="mb-2" />
+        <v-skeleton-loader
+          v-for="n in 6"
+          :key="`order-row-skeleton-${n}`"
+          type="table-row-divider"
+          class="mb-1"
+        />
+      </v-card-text>
+    </v-card>
 
     <v-data-table-server
+      v-else
       v-model:page="page"
       v-model:items-per-page="perPage"
       v-model:sort-by="sortBy"
@@ -93,10 +117,11 @@ const page = ref(1)
 const perPage = ref(25)
 const perPageOptions = [10, 25, 50, 100]
 const sortBy = ref<Array<{ key: string, order: 'asc' | 'desc' }>>([{ key: 'created_at', order: 'desc' }])
-const search = ref('')
-const statusFilter = ref('')
+const search = ref<string | null>('')
+const statusFilter = ref<string | null>(null)
 const dateRange = ref<{ start: string | null, end: string | null }>({ start: null, end: null })
 let searchTimer: ReturnType<typeof setTimeout> | null = null
+const normalizedSearch = computed(() => String(search.value ?? '').trim())
 
 const statusOptions = [
   { title: 'Pending', value: 'pending' },
@@ -168,7 +193,7 @@ async function load() {
     const currentSort = sortBy.value[0] ?? { key: 'created_at', order: 'desc' as const }
     const data = await $fetch<any>('/api/member/orders', {
       query: {
-        q: search.value.trim() || undefined,
+        q: normalizedSearch.value || undefined,
         status: statusFilter.value || undefined,
         date_from: dateRange.value.start || undefined,
         date_to: dateRange.value.end || undefined,
@@ -184,6 +209,13 @@ async function load() {
   finally {
     loading.value = false
   }
+}
+
+function onSearchClear() {
+  if (searchTimer)
+    clearTimeout(searchTimer)
+  page.value = 1
+  load()
 }
 
 watch(page, () => load())

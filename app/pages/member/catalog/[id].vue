@@ -93,7 +93,7 @@ const variants = ref<any[]>([])
 const images = ref<any[]>([])
 const stockByVariant = ref<Record<string, number>>({})
 const snack = ref(false)
-const cart = useCart()
+const cart = useMemberCart()
 const selectedImageIndex = ref(0)
 const isImageHovering = ref(false)
 const hoverX = ref(50)
@@ -125,7 +125,52 @@ function optionSetImagePaths(optionSets: any): string[] {
   return [...new Set(paths)]
 }
 
+function variantOptionImagePaths(optionSets: any, variantRows: any[]): string[] {
+  const sets = Array.isArray(optionSets) ? optionSets : []
+  const imageSetByName = new Map<string, Array<{ label: string; value: string }>>()
+  for (const set of sets) {
+    if ((set?.type ?? 'text') !== 'image')
+      continue
+    const setName = String(set?.name ?? '').trim()
+    if (!setName)
+      continue
+    const values = Array.isArray(set?.values) ? set.values : []
+    const normalized = values
+      .map((raw: any) => {
+        if (typeof raw === 'string') {
+          const clean = raw.trim()
+          return clean ? { label: clean, value: clean } : null
+        }
+        const label = String(raw?.label ?? '').trim()
+        const value = String(raw?.value ?? '').trim()
+        return label && value ? { label, value } : null
+      })
+      .filter(Boolean) as Array<{ label: string; value: string }>
+    if (normalized.length)
+      imageSetByName.set(setName, normalized)
+  }
+
+  const paths: string[] = []
+  for (const variant of variantRows ?? []) {
+    const optionValues = (variant?.option_values && typeof variant.option_values === 'object')
+      ? (variant.option_values as Record<string, string>)
+      : {}
+    for (const [setName, selected] of Object.entries(optionValues)) {
+      const selectedValue = String(selected ?? '').trim()
+      if (!selectedValue)
+        continue
+      const options = imageSetByName.get(setName) ?? []
+      const matched = options.find(v => v.label === selectedValue || v.value === selectedValue)
+      if (matched?.value)
+        paths.push(matched.value)
+    }
+  }
+  return [...new Set(paths)]
+}
+
 function imageUrl(path: string) {
+  if (path.startsWith('http://') || path.startsWith('https://'))
+    return path
   const base = config.public.supabaseUrl as string
   return base ? `${base}/storage/v1/object/public/product-images/${path}` : path
 }
@@ -136,14 +181,14 @@ function renderDescription(value: string | null | undefined) {
   return sanitizeRichText(value)
 }
 
-function addToCart(v: any) {
+async function addToCart(v: any) {
   if (!canPurchase(v)) return
   if (v.track_stock !== false) {
     const existingQty = cart.items.value.find(i => i.variant_id === v.id)?.quantity ?? 0
     if (existingQty >= (v.stock ?? 0))
       return
   }
-  cart.addItem({
+  await cart.addItem({
     variant_id: v.id,
     product_name: product.value!.name,
     variant_name: v.name,
@@ -159,7 +204,7 @@ function canPurchase(v: any) {
 }
 
 function stockLabel(v: any) {
-  if (v.track_stock === false) return 'Not tracked'
+  if (v.track_stock === false) return '-'
   if (v.stock == null) return '–'
   return v.stock > 0 ? `In stock (${v.stock})` : 'Out of stock'
 }
@@ -175,6 +220,7 @@ function onImageHoverMove(e: MouseEvent) {
 }
 
 async function load() {
+  await cart.ensureLoaded()
   const { data: p } = await supabase.from('products').select('*').eq('id', id).eq('is_active', true).single()
   const currentProduct = (p as any) ?? null
   product.value = currentProduct
@@ -192,15 +238,26 @@ async function load() {
         : Promise.resolve({ data: [] }),
     ])
     const productImages = imgs ?? []
-    if (productImages.length) {
-      images.value = productImages
-    }
-    else {
-      images.value = optionSetImagePaths(currentProduct.option_sets).map((path, idx) => ({
-        id: `opt-img-${idx}`,
+    const optionSetPaths = optionSetImagePaths(currentProduct.option_sets)
+    const variantPaths = variantOptionImagePaths(currentProduct.option_sets, variants.value)
+    const mergedPaths = [...new Set([
+      ...productImages.map((img: any) => String(img?.path ?? '').trim()).filter(Boolean),
+      ...optionSetPaths,
+      ...variantPaths,
+    ])]
+
+    const productImageByPath = new Map(
+      productImages
+        .filter((img: any) => String(img?.path ?? '').trim())
+        .map((img: any) => [String(img.path).trim(), img]),
+    )
+    images.value = mergedPaths.map((path, idx) => {
+      const hit = productImageByPath.get(path)
+      return {
+        id: hit?.id ?? `merged-img-${idx}`,
         path,
-      }))
-    }
+      }
+    })
     selectedImageIndex.value = 0
     const byVariant: Record<string, number> = {}
     for (const row of (stockRows as any[]) ?? []) {

@@ -10,12 +10,17 @@ const ROLE_ROUTES: Record<AppRole, string> = {
 
 const PATH_ROLES: Record<string, AppRole[]> = {
   '/superadmin': ['superadmin'],
+  '/superadmin/inbox': ['superadmin'],
+  '/print': ['superadmin', 'admin', 'staff', 'member'],
+  '/admin/inbox': ['superadmin', 'admin'],
   '/admin/products': ['superadmin', 'admin', 'staff'],
   '/admin/product-metadata': ['superadmin', 'admin', 'staff'],
   '/admin/orders': ['superadmin', 'admin', 'staff'],
   '/admin/promotions': ['superadmin', 'admin'],
   '/admin': ['superadmin', 'admin'],
   '/member': ['superadmin', 'admin', 'member', 'staff'],
+  '/member/chat': ['superadmin', 'admin', 'member', 'staff'],
+  '/staff/inbox': ['superadmin', 'admin', 'staff'],
   '/staff': ['superadmin', 'admin', 'staff'],
 }
 

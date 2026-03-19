@@ -6,146 +6,183 @@
     <v-btn v-if="canEditProducts" color="primary" class="mb-4" :to="'/admin/products/new'">
       Add product
     </v-btn>
-    <div class="d-flex align-center ga-2 mb-3 flex-wrap">
-      <v-text-field
-        v-model="search"
-        label="Search products"
-        variant="outlined"
-        density="compact"
-        hide-details
-        clearable
-        prepend-inner-icon="mdi-magnify"
-        style="max-width: 360px"
-      />
-      <v-autocomplete
-        v-model="selectedCategoryIds"
-        :items="categories"
-        item-title="name"
-        item-value="id"
-        label="Categories"
-        variant="outlined"
-        density="compact"
-        hide-details
-        multiple
-        chips
-        clearable
-        style="min-width: 240px; max-width: 320px"
-      />
-      <v-autocomplete
-        v-model="selectedTagIds"
-        :items="tags"
-        item-title="name"
-        item-value="id"
-        label="Tags"
-        variant="outlined"
-        density="compact"
-        hide-details
-        multiple
-        chips
-        clearable
-        style="min-width: 220px; max-width: 300px"
-      />
+    <AppDataTableToolbar card-class="mb-3">
+      <template #filters>
+          <v-col cols="12" sm="6" md="3">
+            <v-text-field
+              v-model="search"
+              label="Search products"
+              variant="outlined"
+              density="compact"
+              hide-details
+              clearable
+              prepend-inner-icon="mdi-magnify"
+              class="app-filter-field"
+            />
+          </v-col>
+          <v-col cols="12" sm="6" md="3">
+            <v-select
+              v-model="selectedBrandId"
+              :items="brands"
+              item-title="name"
+              item-value="id"
+              label="Brand model"
+              variant="outlined"
+              density="compact"
+              hide-details
+              clearable
+              class="app-filter-field"
+            />
+          </v-col>
+          <v-col cols="12" sm="6" md="3">
+            <v-autocomplete
+              v-model="selectedCategoryIds"
+              :items="categories"
+              item-title="name"
+              item-value="id"
+              label="Categories"
+              variant="outlined"
+              density="compact"
+              hide-details
+              multiple
+              chips
+              clearable
+              class="app-filter-field"
+            />
+          </v-col>
+          <v-col cols="12" sm="6" md="3">
+            <v-autocomplete
+              v-model="selectedTagIds"
+              :items="tags"
+              item-title="name"
+              item-value="id"
+              label="Tags"
+              variant="outlined"
+              density="compact"
+              hide-details
+              multiple
+              chips
+              clearable
+              class="app-filter-field"
+            />
+          </v-col>
+      </template>
+      <template #actions>
+        <template v-if="canDeleteProducts && selectedProductIds.length > 0">
+            <v-col cols="12" sm="6" md="3">
+              <v-chip size="small" variant="outlined">
+                Selected: {{ selectedProductIds.length }}
+              </v-chip>
+            </v-col>
+            <v-col cols="12" sm="6" md="3">
+              <v-btn
+                block
+                size="small"
+                variant="outlined"
+                :disabled="selectedProductIds.length === 0 || bulkWorking"
+                :loading="bulkWorking && bulkAction === 'activate'"
+                @click="bulkUpdateStatus(true)"
+              >
+                Set active
+              </v-btn>
+            </v-col>
+            <v-col cols="12" sm="6" md="3">
+              <v-btn
+                block
+                size="small"
+                variant="outlined"
+                :disabled="selectedProductIds.length === 0 || bulkWorking"
+                :loading="bulkWorking && bulkAction === 'deactivate'"
+                @click="bulkUpdateStatus(false)"
+              >
+                Set inactive
+              </v-btn>
+            </v-col>
+            <v-col cols="12" sm="6" md="3">
+              <v-btn
+                block
+                size="small"
+                color="error"
+                variant="outlined"
+                :disabled="selectedProductIds.length === 0 || bulkWorking"
+                @click="showBulkDeleteDialog = true"
+              >
+                Delete selected
+              </v-btn>
+            </v-col>
+        </template>
+        </template>
+    </AppDataTableToolbar>
+    <div class="admin-products-table-wrap">
+      <v-data-table-server
+        v-model="selectedRows"
+        v-model:page="page"
+        v-model:items-per-page="perPage"
+        v-model:sort-by="sortBy"
+        :headers="headers"
+        :items="products"
+        :items-length="total"
+        :items-per-page-options="perPageOptions"
+        :loading="loading"
+        show-select
+        return-object
+        class="elevation-0 admin-products-table"
+      >
+        <template #item.name="{ item }">
+          <NuxtLink :to="`/admin/products/${unwrapRow(item).id}`" class="text-primary text-decoration-none font-weight-medium">
+            {{ unwrapRow(item).name }}
+          </NuxtLink>
+        </template>
+        <template #item.barcode="{ item }">
+          <BarcodeImage :value="unwrapRow(item).barcode" />
+        </template>
+        <template #item.variant_count="{ item }">
+          <v-btn
+            size="small"
+            variant="text"
+            class="text-none px-1 count-cell-btn"
+            :disabled="Number(unwrapRow(item).variant_count ?? 0) <= 0"
+            @click.stop="openVariantDialog(unwrapRow(item))"
+          >
+            <span class="count-cell-text">{{ unwrapRow(item).variant_count ?? 0 }}</span>
+          </v-btn>
+        </template>
+        <template #item.image_count="{ item }">
+          <span class="count-cell-text">{{ unwrapRow(item).image_count ?? 0 }}</span>
+        </template>
+        <template #item.price="{ item }">
+          {{ formatPriceDisplay(unwrapRow(item)) }}
+        </template>
+        <template #item.is_active="{ item }">
+          {{ unwrapRow(item).is_active ? 'Yes' : 'No' }}
+        </template>
+        <template #item.created_at="{ item }">
+          {{ formatTimestamp(unwrapRow(item).created_at) }}
+        </template>
+        <template #item.updated_at="{ item }">
+          {{ formatTimestamp(unwrapRow(item).updated_at) }}
+        </template>
+        <template #item.actions="{ item }">
+          <v-btn
+            v-if="canEditProducts"
+            icon="mdi-pencil"
+            size="small"
+            variant="text"
+            :to="`/admin/products/${unwrapRow(item).id}`"
+          />
+          <v-btn
+            v-if="canDeleteProducts"
+            icon="mdi-trash-can"
+            size="small"
+            variant="text"
+            color="error"
+            :disabled="!unwrapRow(item).is_active"
+            :loading="deletingId === unwrapRow(item).id"
+            @click="openDeleteDialog(unwrapRow(item))"
+          </v-btn>
+        </template>
+      </v-data-table-server>
     </div>
-    <div v-if="canDeleteProducts" class="d-flex align-center ga-2 mb-3 flex-wrap">
-      <v-chip size="small" variant="outlined">
-        Selected: {{ selectedProductIds.length }}
-      </v-chip>
-      <v-btn
-        size="small"
-        variant="outlined"
-        :disabled="selectedProductIds.length === 0 || bulkWorking"
-        :loading="bulkWorking && bulkAction === 'activate'"
-        @click="bulkUpdateStatus(true)"
-      >
-        Set active
-      </v-btn>
-      <v-btn
-        size="small"
-        variant="outlined"
-        :disabled="selectedProductIds.length === 0 || bulkWorking"
-        :loading="bulkWorking && bulkAction === 'deactivate'"
-        @click="bulkUpdateStatus(false)"
-      >
-        Set inactive
-      </v-btn>
-      <v-btn
-        size="small"
-        color="error"
-        variant="outlined"
-        :disabled="selectedProductIds.length === 0 || bulkWorking"
-        @click="showBulkDeleteDialog = true"
-      >
-        Delete selected
-      </v-btn>
-    </div>
-    <v-data-table-server
-      v-model="selectedRows"
-      v-model:page="page"
-      v-model:items-per-page="perPage"
-      v-model:sort-by="sortBy"
-      :headers="headers"
-      :items="products"
-      :items-length="total"
-      :items-per-page-options="perPageOptions"
-      :loading="loading"
-      show-select
-      return-object
-      class="elevation-0 admin-products-table"
-    >
-      <template #item.name="{ item }">
-        <NuxtLink :to="`/admin/products/${unwrapRow(item).id}`" class="text-primary text-decoration-none font-weight-medium">
-          {{ unwrapRow(item).name }}
-        </NuxtLink>
-      </template>
-      <template #item.barcode="{ item }">
-        <BarcodeImage :value="unwrapRow(item).barcode" />
-      </template>
-      <template #item.variant_count="{ item }">
-        <v-btn
-          size="small"
-          variant="text"
-          class="text-none px-1 count-cell-btn"
-          :disabled="Number(unwrapRow(item).variant_count ?? 0) <= 0"
-          @click.stop="openVariantDialog(unwrapRow(item))"
-        >
-          <span class="count-cell-text">{{ unwrapRow(item).variant_count ?? 0 }}</span>
-        </v-btn>
-      </template>
-      <template #item.image_count="{ item }">
-        <span class="count-cell-text">{{ unwrapRow(item).image_count ?? 0 }}</span>
-      </template>
-      <template #item.price="{ item }">
-        {{ formatPriceDisplay(unwrapRow(item)) }}
-      </template>
-      <template #item.is_active="{ item }">
-        {{ unwrapRow(item).is_active ? 'Yes' : 'No' }}
-      </template>
-      <template #item.created_at="{ item }">
-        {{ formatTimestamp(unwrapRow(item).created_at) }}
-      </template>
-      <template #item.updated_at="{ item }">
-        {{ formatTimestamp(unwrapRow(item).updated_at) }}
-      </template>
-      <template #item.actions="{ item }">
-        <v-btn
-          v-if="canEditProducts"
-          icon="mdi-pencil"
-          size="small"
-          variant="text"
-          :to="`/admin/products/${unwrapRow(item).id}`"
-        />
-        <v-btn
-          v-if="canDeleteProducts"
-          icon="mdi-trash-can"
-          size="small"
-          variant="text"
-          color="error"
-          :disabled="!unwrapRow(item).is_active"
-          :loading="deletingId === unwrapRow(item).id"
-          @click="openDeleteDialog(unwrapRow(item))"
-        </v-btn>
-      </template>
-    </v-data-table-server>
 
     <v-dialog v-model="showDeleteDialog" max-width="520">
       <v-card>
@@ -258,8 +295,10 @@ const page = ref(1)
 const perPage = ref(25)
 const perPageOptions = [25, 50, 100]
 const sortBy = ref<Array<{ key: string, order: 'asc' | 'desc' }>>([{ key: 'created_at', order: 'desc' }])
+const brands = ref<any[]>([])
 const categories = ref<any[]>([])
 const tags = ref<any[]>([])
+const selectedBrandId = ref<string | null>(null)
 const selectedCategoryIds = ref<string[]>([])
 const selectedTagIds = ref<string[]>([])
 const loading = ref(false)
@@ -369,6 +408,7 @@ async function load() {
     const data = await $fetch<any>('/api/admin/products', {
       query: {
         q: search.value.trim() || undefined,
+        brand_id: selectedBrandId.value || undefined,
         category_ids: selectedCategoryIds.value.length ? selectedCategoryIds.value.join(',') : undefined,
         tag_ids: selectedTagIds.value.length ? selectedTagIds.value.join(',') : undefined,
         sort_by: currentSort.key,
@@ -388,6 +428,7 @@ async function load() {
 
 async function loadFilters() {
   const data = await $fetch<any>('/api/admin/product-metadata')
+  brands.value = data?.brands ?? []
   categories.value = data?.categories ?? []
   tags.value = data?.tags ?? []
 }
@@ -485,6 +526,11 @@ watch(selectedCategoryIds, () => {
   load()
 }, { deep: true })
 
+watch(selectedBrandId, () => {
+  page.value = 1
+  load()
+})
+
 watch(selectedTagIds, () => {
   page.value = 1
   load()
@@ -502,6 +548,11 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.admin-products-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
 .admin-products-table :deep(th),
 .admin-products-table :deep(td) {
   white-space: nowrap;

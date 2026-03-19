@@ -3,14 +3,21 @@ import { getProfileOrThrow, requireRoles } from '~/server/utils/auth'
 import { getServiceRoleClient } from '~/server/utils/supabase'
 
 const bodySchema = z.object({
+  site_name: z.string().max(80).optional().nullable(),
+  site_favicon_original: z.string().max(255).optional().nullable(),
+  site_favicon_64: z.string().max(255).optional().nullable(),
+  site_favicon_84: z.string().max(255).optional().nullable(),
+  site_favicon_512: z.string().max(255).optional().nullable(),
   pricing_sign: z.string().max(8).optional(),
   pricing_symbol: z.string().min(1).max(16).optional(),
   pricing_label: z.string().min(1).max(40).optional(),
   pricing_decimals: z.number().int().min(0).max(4).optional(),
   pricing_symbol_position: z.enum(['before', 'after']).optional(),
+  shop_logo: z.string().optional().nullable(),
+  shop_name: z.string().optional().nullable(),
   shop_address: z.string().optional().nullable(),
   shop_email: z.string().email().optional().nullable(),
-  shop_location: z.string().optional().nullable(),
+  mobile_number: z.string().optional().nullable(),
   barcode_type: z.enum(['code128', 'ean13', 'upca']).optional(),
   smtp_host: z.string().optional().nullable(),
   smtp_port: z.number().int().min(1).max(65535).optional().nullable(),

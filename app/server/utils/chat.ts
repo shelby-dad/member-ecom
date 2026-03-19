@@ -1,0 +1,62 @@
+import type { SupabaseClient } from '@supabase/supabase-js'
+import type { AppRole } from '~/server/utils/auth'
+
+export interface ChatActor {
+  id: string
+  role: AppRole
+}
+
+export interface ChatThreadRow {
+  id: string
+  member_id: string
+  assigned_to: string | null
+  assigned_by: string | null
+  status: 'open' | 'banned'
+  banned_by: string | null
+  banned_at: string | null
+  last_message_at: string | null
+  last_message_preview: string | null
+  created_at: string
+  updated_at: string
+}
+
+export function canAssign(actor: ChatActor) {
+  return actor.role === 'admin' || actor.role === 'superadmin'
+}
+
+export function isOperator(actor: ChatActor) {
+  return actor.role === 'superadmin' || actor.role === 'admin' || actor.role === 'staff'
+}
+
+export function assertThreadAccess(actor: ChatActor, thread: ChatThreadRow) {
+  if (actor.role === 'member' && thread.member_id !== actor.id)
+    throw createError({ statusCode: 403, message: 'Forbidden' })
+  if (actor.role === 'staff' && thread.assigned_to !== actor.id)
+    throw createError({ statusCode: 403, message: 'Forbidden' })
+}
+
+export async function getThreadOrThrow(
+  supabase: SupabaseClient,
+  threadId: string,
+): Promise<ChatThreadRow> {
+  const { data, error } = await supabase
+    .from('chat_threads')
+    .select('id, member_id, assigned_to, assigned_by, status, banned_by, banned_at, last_message_at, last_message_preview, created_at, updated_at')
+    .eq('id', threadId)
+    .maybeSingle()
+  if (error)
+    throw createError({ statusCode: 500, message: error.message })
+  if (!data)
+    throw createError({ statusCode: 404, message: 'Chat thread not found.' })
+  return data as ChatThreadRow
+}
+
+export function normalizeMessagePreview(message: string) {
+  return message.trim().slice(0, 160)
+}
+
+export function canMemberSendWhileUnassigned(lastSenderId: string | null, memberId: string) {
+  if (!lastSenderId)
+    return true
+  return String(lastSenderId) !== String(memberId)
+}

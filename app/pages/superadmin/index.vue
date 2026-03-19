@@ -14,25 +14,6 @@
       </v-btn>
     </div>
 
-    <v-row>
-      <v-col cols="12" sm="6" md="4">
-        <v-card to="/admin" class="app-card" hover>
-          <v-card-title>Admin</v-card-title>
-          <v-card-text>
-            Products, orders, payment methods.
-          </v-card-text>
-        </v-card>
-      </v-col>
-      <v-col cols="12" sm="6" md="4">
-        <v-card to="/staff/pos" class="app-card" hover>
-          <v-card-title>POS</v-card-title>
-          <v-card-text>
-            Point of sale for staff.
-          </v-card-text>
-        </v-card>
-      </v-col>
-    </v-row>
-
     <v-dialog v-model="showSettings" max-width="920" persistent>
       <v-card>
         <v-card-title class="d-flex align-center">
@@ -45,6 +26,7 @@
         <v-divider />
         <v-card-text class="settings-card-text">
           <v-tabs v-model="activeTab" density="comfortable" class="settings-tabs">
+            <v-tab value="site">Site</v-tab>
             <v-tab value="pricing">Pricing</v-tab>
             <v-tab value="shop">Shop</v-tab>
             <v-tab value="barcode">Barcode</v-tab>
@@ -52,6 +34,62 @@
           </v-tabs>
 
           <v-window v-model="activeTab" class="settings-window">
+            <v-window-item value="site" class="settings-pane">
+              <div class="settings-pane-body settings-pane-body--spaced">
+                <v-text-field
+                  v-model="form.site_name"
+                  label="Site name"
+                  variant="outlined"
+                  class="mb-3"
+                  hint="If set, this name replaces Single Tenant Shop in document title."
+                  persistent-hint
+                />
+
+                <div class="d-flex align-center ga-3 flex-wrap">
+                  <v-btn
+                    size="small"
+                    variant="outlined"
+                    :loading="uploadingSiteFavicon"
+                    prepend-icon="mdi-image-outline"
+                    @click="siteFaviconInput?.click()"
+                  >
+                    Upload Favicon
+                  </v-btn>
+                  <v-btn
+                    v-if="form.site_favicon_84 || form.site_favicon_64 || form.site_favicon_512"
+                    size="small"
+                    variant="text"
+                    color="error"
+                    @click="clearSiteFavicon"
+                  >
+                    Remove
+                  </v-btn>
+                  <span class="text-caption text-medium-emphasis">
+                    Allowed: PNG or ICO, exactly 512x512.
+                  </span>
+                </div>
+
+                <input
+                  ref="siteFaviconInput"
+                  type="file"
+                  accept=".png,.ico,image/png,image/x-icon,image/vnd.microsoft.icon"
+                  class="d-none"
+                  @change="onSiteFaviconSelected"
+                >
+
+                <div v-if="form.site_favicon_84 || form.site_favicon_64 || form.site_favicon_512" class="mt-3">
+                  <div class="text-caption text-medium-emphasis mb-2">Preview</div>
+                  <v-img
+                    :src="storageImageUrl(form.site_favicon_84 || form.site_favicon_64 || form.site_favicon_512 || '')"
+                    width="84"
+                    height="84"
+                    contain
+                    class="rounded"
+                  />
+                </div>
+              </div>
+            </v-window-item>
+
             <v-window-item value="pricing" class="settings-pane">
               <div class="settings-pane-body">
                 <v-row>
@@ -89,8 +127,33 @@
 
             <v-window-item value="shop" class="settings-pane">
               <div class="settings-pane-body settings-pane-body--spaced">
+                <div class="mb-3">
+                  <div class="d-flex align-center ga-2 mb-2">
+                    <v-btn size="small" variant="outlined" @click="showShopLogoPicker = true">
+                      Choose Shop Logo
+                    </v-btn>
+                    <v-btn
+                      v-if="form.shop_logo"
+                      size="small"
+                      variant="text"
+                      color="error"
+                      @click="form.shop_logo = ''"
+                    >
+                      Remove
+                    </v-btn>
+                  </div>
+                  <v-img
+                    v-if="form.shop_logo"
+                    :src="storageImageUrl(form.shop_logo)"
+                    width="120"
+                    height="120"
+                    cover
+                    class="rounded border"
+                  />
+                </div>
+                <v-text-field v-model="form.shop_name" label="Shop name" variant="outlined" class="mb-3" />
                 <v-text-field v-model="form.shop_email" label="Shop email" variant="outlined" class="mb-3" />
-                <v-text-field v-model="form.shop_location" label="Shop location" variant="outlined" class="mb-3" />
+                <v-text-field v-model="form.mobile_number" label="Mobile number" variant="outlined" class="mb-3" />
                 <v-textarea v-model="form.shop_address" label="Shop address" variant="outlined" rows="3" />
               </div>
             </v-window-item>
@@ -157,6 +220,12 @@
     <v-snackbar v-model="snack" :color="snackColor">
       {{ snackMsg }}
     </v-snackbar>
+
+    <StorageImagePickerDialog
+      v-model="showShopLogoPicker"
+      :selected-path="form.shop_logo || ''"
+      @selected="onShopLogoSelected"
+    />
   </div>
 </template>
 
@@ -164,15 +233,20 @@
 definePageMeta({ layout: 'superadmin', middleware: 'role' })
 
 const { refreshPricingSettings } = usePricingFormat()
+const { refreshSiteSettings } = useSiteSettings()
+const config = useRuntimeConfig()
 
 const showSettings = ref(false)
-const activeTab = ref<'pricing' | 'shop' | 'barcode' | 'smtp'>('pricing')
+const showShopLogoPicker = ref(false)
+const activeTab = ref<'site' | 'pricing' | 'shop' | 'barcode' | 'smtp'>('site')
 const saving = ref(false)
 const loading = ref(false)
+const uploadingSiteFavicon = ref(false)
 const snack = ref(false)
 const snackMsg = ref('')
 const snackColor = ref<'success' | 'error'>('success')
 const smtpPasswordSet = ref(false)
+const siteFaviconInput = ref<HTMLInputElement | null>(null)
 
 const symbolPositions = [
   { title: 'Before amount', value: 'before' },
@@ -186,14 +260,21 @@ const barcodeTypes = [
 ]
 
 const form = reactive({
+  site_name: '',
+  site_favicon_original: '',
+  site_favicon_64: '',
+  site_favicon_84: '',
+  site_favicon_512: '',
   pricing_sign: '',
   pricing_symbol: '฿',
   pricing_label: 'Price',
   pricing_decimals: 2,
   pricing_symbol_position: 'before' as 'before' | 'after',
+  shop_logo: '',
+  shop_name: '',
   shop_address: '',
   shop_email: '',
-  shop_location: '',
+  mobile_number: '',
   barcode_type: 'code128' as 'code128' | 'ean13' | 'upca',
   smtp_host: '',
   smtp_port: 587,
@@ -213,14 +294,21 @@ const previewPrice = computed(() => {
 })
 
 function assignForm(data: any) {
+  form.site_name = data?.site_name ?? ''
+  form.site_favicon_original = data?.site_favicon_original ?? ''
+  form.site_favicon_64 = data?.site_favicon_64 ?? ''
+  form.site_favicon_84 = data?.site_favicon_84 ?? ''
+  form.site_favicon_512 = data?.site_favicon_512 ?? ''
   form.pricing_sign = data?.pricing_sign ?? ''
   form.pricing_symbol = data?.pricing_symbol ?? '฿'
   form.pricing_label = data?.pricing_label ?? 'Price'
   form.pricing_decimals = Number(data?.pricing_decimals ?? 2)
   form.pricing_symbol_position = data?.pricing_symbol_position === 'after' ? 'after' : 'before'
+  form.shop_logo = data?.shop_logo ?? ''
+  form.shop_name = data?.shop_name ?? ''
   form.shop_address = data?.shop_address ?? ''
   form.shop_email = data?.shop_email ?? ''
-  form.shop_location = data?.shop_location ?? ''
+  form.mobile_number = data?.mobile_number ?? ''
   form.barcode_type = ['code128', 'ean13', 'upca'].includes(data?.barcode_type) ? data.barcode_type : 'code128'
   form.smtp_host = data?.smtp_host ?? ''
   form.smtp_port = Number(data?.smtp_port ?? 587)
@@ -230,6 +318,63 @@ function assignForm(data: any) {
   form.smtp_from_name = data?.smtp_from_name ?? ''
   form.smtp_secure = !!data?.smtp_secure
   smtpPasswordSet.value = !!data?.smtp_password_set
+}
+
+function storageImageUrl(path: string) {
+  const value = String(path ?? '').trim()
+  if (!value)
+    return ''
+  if (value.startsWith('http://') || value.startsWith('https://'))
+    return value
+  const base = config.public.supabaseUrl as string
+  return base ? `${base}/storage/v1/object/public/product-images/${value}` : value
+}
+
+function onShopLogoSelected(path: string) {
+  form.shop_logo = path
+  showShopLogoPicker.value = false
+}
+
+function clearSiteFavicon() {
+  form.site_favicon_original = ''
+  form.site_favicon_64 = ''
+  form.site_favicon_84 = ''
+  form.site_favicon_512 = ''
+}
+
+async function onSiteFaviconSelected(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file)
+    return
+
+  const formData = new FormData()
+  formData.append('file', file)
+
+  uploadingSiteFavicon.value = true
+  try {
+    const data = await $fetch<any>('/api/superadmin/settings/favicon', {
+      method: 'POST',
+      body: formData,
+    })
+    form.site_favicon_original = String(data?.site_favicon_original ?? '')
+    form.site_favicon_64 = String(data?.site_favicon_64 ?? '')
+    form.site_favicon_84 = String(data?.site_favicon_84 ?? '')
+    form.site_favicon_512 = String(data?.site_favicon_512 ?? '')
+    await refreshSiteSettings()
+    snackColor.value = 'success'
+    snackMsg.value = 'Favicon uploaded successfully.'
+    snack.value = true
+  }
+  catch (error: any) {
+    snackColor.value = 'error'
+    snackMsg.value = error?.data?.message || error?.message || 'Failed to upload favicon.'
+    snack.value = true
+  }
+  finally {
+    uploadingSiteFavicon.value = false
+    input.value = ''
+  }
 }
 
 async function loadSettings() {
@@ -259,14 +404,21 @@ async function saveSettings() {
   saving.value = true
   try {
     const payload = {
+      site_name: form.site_name || null,
+      site_favicon_original: form.site_favicon_original || null,
+      site_favicon_64: form.site_favicon_64 || null,
+      site_favicon_84: form.site_favicon_84 || null,
+      site_favicon_512: form.site_favicon_512 || null,
       pricing_sign: form.pricing_sign,
       pricing_symbol: form.pricing_symbol,
       pricing_label: form.pricing_label,
       pricing_decimals: Number(form.pricing_decimals || 0),
       pricing_symbol_position: form.pricing_symbol_position,
+      shop_logo: form.shop_logo || null,
+      shop_name: form.shop_name || null,
       shop_address: form.shop_address || null,
       shop_email: form.shop_email || null,
-      shop_location: form.shop_location || null,
+      mobile_number: form.mobile_number || null,
       barcode_type: form.barcode_type,
       smtp_host: smtpHost || null,
       smtp_port: smtpPort || null,
@@ -279,6 +431,7 @@ async function saveSettings() {
     const data = await $fetch<any>('/api/superadmin/settings', { method: 'PUT', body: payload })
     assignForm(data)
     await refreshPricingSettings()
+    await refreshSiteSettings()
     snackColor.value = 'success'
     snackMsg.value = 'Settings updated successfully.'
     snack.value = true

@@ -1,5 +1,5 @@
 <template>
-  <AppShell role="staff" brand="POS Desk">
+  <AppShell role="staff">
     <slot />
   </AppShell>
 </template>

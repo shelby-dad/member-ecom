@@ -1,9 +1,18 @@
 import { z } from 'zod'
+import { defineSafeEventHandler } from '~/server/utils/api-error'
 import { getProfileOrThrow, requireRoles } from '~/server/utils/auth'
 import { getServiceRoleClient } from '~/server/utils/supabase'
 import { applyOrderStock } from '~/server/utils/order-stock'
 import { resolvePromotionForOrder } from '~/server/utils/promotions'
 import { generateUniqueOrderNumber } from '~/server/utils/order-number'
+import { generateUniqueInvoiceNumber } from '~/server/utils/invoice-number'
+import { enforceRateLimit } from '~/server/utils/rate-limit'
+import {
+  aggregateQuantityByVariant,
+  aggregateStockByVariant,
+  normalizeCheckoutItems,
+  toOrderItemsRows,
+} from '~/server/utils/order-checkout'
 
 const bodySchema = z.object({
   user_id: z.string().uuid(),
@@ -28,9 +37,15 @@ const bodySchema = z.object({
   shipping_country: z.string().optional(),
 })
 
-export default defineEventHandler(async (event) => {
+export default defineSafeEventHandler(async (event) => {
   const profile = await getProfileOrThrow(event)
   requireRoles(profile, ['superadmin', 'admin', 'staff'])
+  enforceRateLimit(event, {
+    bucket: 'orders:create:pos',
+    limit: 60,
+    windowMs: 60_000,
+    scope: profile.id,
+  })
 
   const body = await readBody(event)
   const parsed = bodySchema.safeParse(body)
@@ -50,10 +65,7 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, message: 'Invalid or inactive payment method' })
   }
 
-  const quantityByVariantId = new Map<string, number>()
-  for (const item of parsed.data.items) {
-    quantityByVariantId.set(item.variant_id, (quantityByVariantId.get(item.variant_id) ?? 0) + item.quantity)
-  }
+  const quantityByVariantId = aggregateQuantityByVariant(parsed.data.items)
   const variantIds = [...quantityByVariantId.keys()]
   const { data: activeVariants, error: activeVariantsError } = await supabase
     .from('product_variants')
@@ -64,45 +76,22 @@ export default defineEventHandler(async (event) => {
   if (activeVariantsError)
     throw createError({ statusCode: 500, message: activeVariantsError.message })
 
-  const variantById = new Map((activeVariants ?? []).map((v: any) => [v.id, v]))
-  if (variantIds.some(id => !variantById.has(id)))
-    throw createError({ statusCode: 400, message: 'Cart has inactive products. Please refresh POS items.' })
-
   const { data: stockRows, error: stockError } = variantIds.length
     ? await supabase.from('stock').select('variant_id, quantity').in('variant_id', variantIds)
     : { data: [], error: null }
   if (stockError)
     throw createError({ statusCode: 500, message: stockError.message })
 
-  const stockByVariantId: Record<string, number> = {}
-  for (const row of stockRows ?? []) {
-    stockByVariantId[row.variant_id] = (stockByVariantId[row.variant_id] ?? 0) + Number(row.quantity ?? 0)
-  }
-
-  const normalizedItems = variantIds.map((variantId) => {
-    const variant = variantById.get(variantId) as any
-    const quantity = quantityByVariantId.get(variantId) ?? 0
-    const product = variant.products
-    const effectiveTrackStock = variant.track_stock ?? product?.track_stock ?? true
-    const variantPrice = Number(variant.price ?? 0)
-    if (product?.has_variants && variantPrice <= 0) {
-      throw createError({ statusCode: 400, message: 'Cart has invalid variant prices. Please refresh POS items.' })
-    }
-    if (effectiveTrackStock && quantity > (stockByVariantId[variantId] ?? 0)) {
-      throw createError({
-        statusCode: 400,
-        message: `Insufficient stock for "${product?.name ?? 'Product'} - ${variant.name}".`,
-      })
-    }
-    return {
-      variant_id: variant.id,
-      product_name: product?.name ?? '',
-      variant_name: variant.name,
-      price: variantPrice,
-      quantity,
-      track_stock: effectiveTrackStock,
-    }
-  })
+  const stockByVariantId = aggregateStockByVariant((stockRows as any[]) ?? [])
+  const normalizedItems = normalizeCheckoutItems(
+    quantityByVariantId,
+    (activeVariants as any[]) ?? [],
+    stockByVariantId,
+    {
+      inactiveCartMessage: 'Cart has inactive products. Please refresh POS items.',
+      invalidVariantPriceMessage: 'Cart has invalid variant prices. Please refresh POS items.',
+    },
+  )
 
   const subtotal = normalizedItems.reduce((sum, i) => sum + i.price * i.quantity, 0)
   const promotion = await resolvePromotionForOrder(supabase, {
@@ -116,6 +105,7 @@ export default defineEventHandler(async (event) => {
   const isBankTransfer = paymentMethod.type === 'bank_transfer'
   const isWallet = paymentMethod.type === 'wallet'
   const isCod = paymentMethod.type === 'cod'
+  const paidAt = (isCash || isBankTransfer || isWallet) ? new Date().toISOString() : null
   if (isWallet) {
     const { data: walletRow, error: walletError } = await supabase
       .from('profiles')
@@ -137,9 +127,11 @@ export default defineEventHandler(async (event) => {
     .insert({
       order_number: orderNumber,
       user_id: parsed.data.user_id,
+      source: 'POS Order',
       branch_id: parsed.data.branch_id ?? null,
       status: (isCash || isBankTransfer) ? 'delivered' : ((isWallet || isCod) ? 'confirmed' : 'pending'),
       payment_status: (isCash || isBankTransfer || isWallet) ? 'paid' : 'pending',
+      paid_at: paidAt,
       payment_method_type: paymentMethod.type,
       shipping_name: parsed.data.shipping_name ?? null,
       shipping_line1: parsed.data.shipping_line1 ?? null,
@@ -161,16 +153,7 @@ export default defineEventHandler(async (event) => {
   if (orderError || !order)
     throw createError({ statusCode: 500, message: orderError?.message ?? 'Failed to create order' })
 
-  const orderItems = normalizedItems.map(i => ({
-    order_id: order.id,
-    variant_id: i.variant_id,
-    product_name: i.product_name,
-    variant_name: i.variant_name,
-    price: i.price,
-    quantity: i.quantity,
-    track_stock: i.track_stock !== false,
-    total: i.price * i.quantity,
-  }))
+  const orderItems = toOrderItemsRows(order.id, normalizedItems)
 
   const { error: itemsError } = await supabase.from('order_items').insert(orderItems)
   if (itemsError)
@@ -196,6 +179,7 @@ export default defineEventHandler(async (event) => {
   const { error: submissionError } = await supabase
     .from('payment_submissions')
     .insert({
+      invoice_number: await generateUniqueInvoiceNumber(supabase),
       order_id: order.id,
       payment_method_id: parsed.data.payment_method_id,
       user_id: parsed.data.user_id,

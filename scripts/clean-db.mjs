@@ -25,10 +25,12 @@
  * - brands
  * - payment_methods
  * - branches
+ * - member_cart_items
  *
  * Also deletes all files from all Storage buckets (keeps buckets).
  *
  * Re-seeds default payment methods after cleanup:
+ * - Wallet
  * - Cash
  * - Cash on Delivery
  *
@@ -105,6 +107,7 @@ const TABLES_TO_CLEAN = [
   'brands',
   'payment_methods',
   'branches',
+  'member_cart_items',
 ]
 
 async function listAllFilePaths(bucket, prefix = '') {
@@ -178,6 +181,7 @@ async function cleanStorageBuckets() {
 
 async function reseedDefaultPaymentMethods() {
   const defaults = [
+    { name: 'Wallet', type: 'wallet', is_active: true, sort_order: 10 },
     { name: 'Cash', type: 'cash', is_active: true, sort_order: 20 },
     { name: 'Cash on Delivery', type: 'cod', is_active: true, sort_order: 30 },
   ]

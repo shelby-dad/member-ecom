@@ -1,5 +1,5 @@
 <template>
-  <AppShell role="admin" brand="Control Center">
+  <AppShell role="admin">
     <slot />
   </AppShell>
 </template>

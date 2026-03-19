@@ -7,7 +7,7 @@
     <v-card class="mb-4">
       <v-card-text>
         <v-row>
-          <v-col cols="12" md="4">
+          <v-col cols="12" sm="6" md="4">
             <v-text-field
               v-model="filters.q"
               label="Search"
@@ -40,7 +40,7 @@
               density="compact"
             />
           </v-col>
-          <v-col cols="12" md="6">
+          <v-col cols="12" sm="6" md="4">
             <v-autocomplete
               v-model="filters.category_ids"
               :items="categoryOptions"
@@ -54,7 +54,7 @@
               clearable
             />
           </v-col>
-          <v-col cols="12" md="6">
+          <v-col cols="12" sm="6" md="4">
             <v-autocomplete
               v-model="filters.tag_ids"
               :items="tags"
@@ -68,94 +68,99 @@
               clearable
             />
           </v-col>
+          <v-col cols="12" sm="6" md="4">
+            <div class="px-1">
+              <div class="d-flex align-center justify-space-between mb-1">
+                <span class="text-body-2 text-medium-emphasis">Price range</span>
+                <span class="text-body-2 font-weight-medium">
+                  {{ formatPrice(filters.price_min) }} - {{ formatPrice(filters.price_max) }}
+                </span>
+              </div>
+              <v-range-slider
+                v-model="priceRange"
+                :min="priceBounds.min"
+                :max="priceBounds.max"
+                :step="1"
+                hide-details
+                color="primary"
+              />
+            </div>
+          </v-col>
         </v-row>
-
-        <div class="px-1">
-          <div class="d-flex align-center justify-space-between mb-1">
-            <span class="text-body-2 text-medium-emphasis">Price range</span>
-            <span class="text-body-2 font-weight-medium">
-              {{ formatPrice(filters.price_min) }} - {{ formatPrice(filters.price_max) }}
-            </span>
-          </div>
-          <v-range-slider
-            v-model="priceRange"
-            :min="priceBounds.min"
-            :max="priceBounds.max"
-            :step="1"
-            hide-details
-            color="primary"
-          />
-        </div>
       </v-card-text>
     </v-card>
 
-    <v-row v-if="products.length">
-      <v-col v-for="p in products" :key="p.id" cols="12" sm="6" lg="4">
-        <v-card class="app-card h-100 catalog-product-card" hover @click="goProduct(p.id)">
-          <div class="catalog-card-media">
-            <v-img
-              v-if="p.image_path"
-              :src="imageUrl(p.image_path)"
-              class="catalog-card-image"
-              contain
-            />
-            <div v-else class="catalog-image-placeholder">
-              <v-icon size="28" class="mb-1">mdi-image-off-outline</v-icon>
-              <span>No product image</span>
-            </div>
-          </div>
-          <div class="catalog-card-content">
-            <v-card-title class="catalog-card-title">{{ p.name }}</v-card-title>
-            <v-card-subtitle class="pt-0">
-              {{ formatPrice(p.min_price) }}
-            </v-card-subtitle>
-            <v-card-text class="catalog-card-description-wrap">
-              <div class="catalog-description" v-html="renderDescription(p.description)" />
-            </v-card-text>
-            <v-card-actions class="catalog-card-actions">
-              <v-btn variant="flat" color="primary" size="small" @click.stop="goProduct(p.id)">
-                View
-              </v-btn>
-              <v-spacer />
-              <v-btn
-                icon
-                size="small"
-                class="catalog-cart-btn"
-                :loading="quickCartLoadingId === p.id"
-                @click.stop="quickAddFromCatalog(p)"
-              >
-                <v-icon size="18">mdi-cart-plus</v-icon>
-              </v-btn>
-            </v-card-actions>
-          </div>
-        </v-card>
-      </v-col>
-    </v-row>
+    <v-card class="mb-4 catalog-grid-wrap">
+      <v-card-text>
+        <v-row v-if="products.length">
+          <v-col v-for="p in products" :key="p.id" cols="12" sm="6" lg="4">
+            <v-card class="app-card h-100 catalog-product-card" hover @click="goProduct(p.id)">
+              <div class="catalog-card-media">
+                <v-img
+                  v-if="p.image_path"
+                  :src="imageUrl(p.image_path)"
+                  class="catalog-card-image"
+                  contain
+                />
+                <div v-else class="catalog-image-placeholder">
+                  <v-icon size="28" class="mb-1">mdi-image-off-outline</v-icon>
+                  <span>No product image</span>
+                </div>
+              </div>
+              <div class="catalog-card-content">
+                <v-card-title class="catalog-card-title">{{ p.name }}</v-card-title>
+                <v-card-subtitle class="pt-0">
+                  {{ formatPrice(p.min_price) }}
+                </v-card-subtitle>
+                <v-card-text class="catalog-card-description-wrap">
+                  <div class="catalog-description" v-html="renderDescription(p.description)" />
+                </v-card-text>
+                <v-card-actions class="catalog-card-actions">
+                  <v-btn variant="flat" color="primary" size="small" @click.stop="goProduct(p.id)">
+                    View
+                  </v-btn>
+                  <v-spacer />
+                  <v-btn
+                    icon
+                    size="small"
+                    class="catalog-cart-btn"
+                    :loading="quickCartLoadingId === p.id"
+                    @click.stop="quickAddFromCatalog(p)"
+                  >
+                    <v-icon size="18">mdi-cart-plus</v-icon>
+                  </v-btn>
+                </v-card-actions>
+              </div>
+            </v-card>
+          </v-col>
+        </v-row>
 
-    <v-row v-if="initialLoading">
-      <v-col v-for="n in 6" :key="`catalog-skeleton-init-${n}`" cols="12" sm="6" lg="4">
-        <v-card class="app-card h-100" variant="outlined">
-          <v-skeleton-loader type="image" height="180" />
-          <v-card-title><v-skeleton-loader type="text" /></v-card-title>
-          <v-card-subtitle class="pt-0"><v-skeleton-loader type="text" width="90px" /></v-card-subtitle>
-          <v-card-text>
-            <v-skeleton-loader type="paragraph" />
-          </v-card-text>
-          <v-card-actions>
-            <v-skeleton-loader type="button" width="80px" />
-          </v-card-actions>
-        </v-card>
-      </v-col>
-    </v-row>
-    <p v-else-if="products.length === 0" class="text-medium-emphasis">
-      No products matched your filters.
-    </p>
+        <v-row v-if="initialLoading">
+          <v-col v-for="n in 6" :key="`catalog-skeleton-init-${n}`" cols="12" sm="6" lg="4">
+            <v-card class="app-card h-100" variant="outlined">
+              <v-skeleton-loader type="image" height="220" />
+              <v-card-title><v-skeleton-loader type="text" /></v-card-title>
+              <v-card-subtitle class="pt-0"><v-skeleton-loader type="text" width="90px" /></v-card-subtitle>
+              <v-card-text>
+                <v-skeleton-loader type="paragraph" />
+              </v-card-text>
+              <v-card-actions>
+                <v-skeleton-loader type="button" width="80px" />
+              </v-card-actions>
+            </v-card>
+          </v-col>
+        </v-row>
+        <p v-else-if="products.length === 0" class="text-medium-emphasis">
+          No products matched your filters.
+        </p>
+      </v-card-text>
+    </v-card>
 
     <div ref="sentinel" class="catalog-sentinel" />
     <v-row v-if="loadingMore && !initialLoading" class="mt-1">
       <v-col v-for="n in 3" :key="`catalog-skeleton-more-${n}`" cols="12" sm="6" lg="4">
         <v-card class="app-card h-100" variant="outlined">
-          <v-skeleton-loader type="image" height="180" />
+          <v-skeleton-loader type="image" height="220" />
           <v-card-title><v-skeleton-loader type="text" /></v-card-title>
           <v-card-subtitle class="pt-0"><v-skeleton-loader type="text" width="90px" /></v-card-subtitle>
           <v-card-text>
@@ -253,7 +258,7 @@ const { formatPrice } = usePricingFormat()
 
 const config = useRuntimeConfig()
 const supabase = useSupabaseClient()
-const cart = useCart()
+const cart = useMemberCart()
 const products = ref<any[]>([])
 const brands = ref<any[]>([])
 const categories = ref<any[]>([])
@@ -459,7 +464,7 @@ async function quickAddFromCatalog(item: any) {
         showSnack('Out of stock for this item.', false)
         return
       }
-      cart.addItem({
+      await cart.addItem({
         variant_id: variant.id,
         product_name: data.product.name,
         variant_name: variant.name,
@@ -485,7 +490,7 @@ async function quickAddFromCatalog(item: any) {
   }
 }
 
-function addSelectedVariantToCart() {
+async function addSelectedVariantToCart() {
   const variant = selectedVariantForModal.value
   if (!variant) return
   const inCart = cart.items.value.find(i => i.variant_id === variant.id)?.quantity ?? 0
@@ -493,7 +498,7 @@ function addSelectedVariantToCart() {
     showSnack('Quantity exceeds available stock.', false)
     return
   }
-  cart.addItem({
+  await cart.addItem({
     variant_id: variant.id,
     product_name: variantModalProductName.value,
     variant_name: variant.name,
@@ -579,6 +584,7 @@ watch(
 )
 
 onMounted(async () => {
+  await cart.ensureLoaded()
   await loadMeta()
   await fetchProducts(true)
   setupObserver()
@@ -599,7 +605,9 @@ onBeforeUnmount(() => {
 }
 
 .catalog-card-media {
-  aspect-ratio: 16 / 9;
+  height: 220px;
+  min-height: 220px;
+  max-height: 220px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -647,6 +655,10 @@ onBeforeUnmount(() => {
 
 .catalog-sentinel {
   height: 1px;
+}
+
+.catalog-grid-wrap {
+  background: color-mix(in srgb, rgb(var(--v-theme-surface)) 92%, #ffffff);
 }
 
 .catalog-cart-btn {

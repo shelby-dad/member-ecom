@@ -4,41 +4,91 @@
       Orders
     </h1>
 
-    <div class="d-flex align-center ga-2 mb-3 flex-wrap">
-      <v-text-field
-        v-model="search"
-        label="Search"
-        variant="outlined"
-        density="compact"
-        hide-details
-        clearable
-        prepend-inner-icon="mdi-magnify"
-        style="max-width: 420px"
-      />
-      <v-select
-        v-model="statusFilter"
-        :items="statusOptions"
-        item-title="title"
-        item-value="value"
-        label="Status"
-        variant="outlined"
-        density="compact"
-        hide-details
-        clearable
-        style="max-width: 220px"
-      />
-      <v-btn
-        v-if="selectedOrderIds.length > 0"
-        size="small"
-        variant="outlined"
-        color="primary"
-        @click="showBulkStatusDialog = true"
-      >
-        {{ selectedOrderIds.length }} selected
-      </v-btn>
-    </div>
+    <AppDataTableToolbar card-class="mb-3">
+      <template #filters>
+          <v-col cols="12" sm="6" md="4">
+            <v-text-field
+              v-model="search"
+              label="Search"
+              variant="outlined"
+              density="compact"
+              hide-details
+              clearable
+              prepend-inner-icon="mdi-magnify"
+              class="app-filter-field"
+              @click:clear="onSearchClear"
+            />
+          </v-col>
+          <v-col cols="12" sm="6" md="4">
+            <v-select
+              v-model="statusFilter"
+              :items="statusOptions"
+              item-title="title"
+              item-value="value"
+              label="Status"
+              variant="outlined"
+              density="compact"
+              hide-details
+              clearable
+              class="app-filter-field"
+            />
+          </v-col>
+          <v-col cols="12" sm="6" md="4">
+            <DateRangePickerField
+              v-model="orderDateRange"
+              label="Order Date"
+              max-width="100%"
+              value-format="iso"
+              :emit-on-close="true"
+              class="app-filter-field"
+            />
+          </v-col>
+      </template>
+      <template #actions>
+          <v-col v-if="selectedOrderIds.length > 0" cols="12" sm="6" md="4">
+            <v-btn
+              block
+              size="small"
+              variant="outlined"
+              color="primary"
+              @click="showBulkStatusDialog = true"
+            >
+              <v-badge :content="selectedOrderIds.length" color="primary" inline>
+                <span>Update Status</span>
+              </v-badge>
+            </v-btn>
+          </v-col>
+          <v-col v-if="selectedOrderIds.length > 0" cols="12" sm="6" md="4">
+            <v-btn
+              block
+              size="small"
+              variant="outlined"
+              color="success"
+              :loading="exportingXls"
+              @click="downloadSelectedXls"
+            >
+              <v-badge :content="selectedOrderIds.length" color="success" inline>
+                <span>Download XLS</span>
+              </v-badge>
+            </v-btn>
+          </v-col>
+      </template>
+    </AppDataTableToolbar>
+
+    <v-card v-if="initialLoading" class="mb-4">
+      <v-card-text>
+        <v-skeleton-loader type="table-heading" class="mb-2" />
+        <v-skeleton-loader
+          v-for="n in 8"
+          :key="`admin-orders-skeleton-${n}`"
+          type="table-row-divider"
+          class="mb-1"
+        />
+      </v-card-text>
+    </v-card>
 
     <v-data-table-server
+      v-else
       v-model="selectedOrderIds"
       v-model:page="page"
       v-model:items-per-page="perPage"
@@ -61,6 +111,9 @@
         <v-chip size="small" :color="statusColor(item.status)">
           {{ item.status }}
         </v-chip>
+      </template>
+      <template #item.source="{ item }">
+        {{ item.source || '-' }}
       </template>
       <template #item.member_name="{ item }">
         {{ item.member_name || '–' }}
@@ -126,6 +179,7 @@
               label="Estimate delivery range"
               max-width="280px"
               value-format="iso"
+              :emit-on-close="true"
             />
           </div>
         </v-card-text>
@@ -169,14 +223,16 @@ definePageMeta({ layout: 'admin', middleware: 'role' })
 const { formatPrice } = usePricingFormat()
 const orders = ref<any[]>([])
 const loading = ref(false)
+const initialLoading = ref(true)
 const total = ref(0)
 const page = ref(1)
 const perPage = ref(25)
 const perPageOptions = [25, 50, 100]
 const sortBy = ref<Array<{ key: string, order: 'asc' | 'desc' }>>([{ key: 'created_at', order: 'desc' }])
 const selectedOrderIds = ref<string[]>([])
-const search = ref('')
-const statusFilter = ref('')
+const search = ref<string | null>('')
+const statusFilter = ref<string | null>(null)
+const orderDateRange = ref<{ start: string | null, end: string | null }>({ start: null, end: null })
 const showBulkStatusDialog = ref(false)
 const bulkStatus = ref<string>('')
 const estimateRange = ref<{ start: string | null, end: string | null }>({ start: null, end: null })
@@ -184,8 +240,10 @@ const bulkSaving = ref(false)
 const showDeleteDialog = ref(false)
 const selectedOrder = ref<any | null>(null)
 const deletingId = ref<string | null>(null)
+const exportingXls = ref(false)
 const actorRole = ref<'superadmin' | 'admin' | 'staff' | 'member' | null>(null)
 let searchTimer: ReturnType<typeof setTimeout> | null = null
+const normalizedSearch = computed(() => String(search.value ?? '').trim())
 
 const canDeleteOrders = computed(() => actorRole.value === 'superadmin')
 const statusOptions = [
@@ -200,6 +258,7 @@ const statusOptions = [
 const headers = [
   { title: 'Order #', key: 'order_number', sortable: true, width: '160px' },
   { title: 'Status', key: 'status', sortable: true, width: '130px' },
+  { title: 'Source', key: 'source', sortable: false, width: '140px' },
   { title: 'Member', key: 'member_name', sortable: true, width: '180px' },
   { title: 'Email', key: 'member_email', sortable: true, width: '220px' },
   { title: 'Address', key: 'shipping_address', sortable: false, width: '300px' },
@@ -262,8 +321,10 @@ async function load() {
     const currentSort = sortBy.value[0] ?? { key: 'created_at', order: 'desc' as const }
     const data = await $fetch<any>('/api/admin/orders', {
       query: {
-        q: search.value.trim() || undefined,
+        q: normalizedSearch.value || undefined,
         status: statusFilter.value || undefined,
+        created_from: orderDateRange.value.start || undefined,
+        created_to: orderDateRange.value.end || undefined,
         page: page.value,
         per_page: perPage.value,
         sort_by: currentSort.key,
@@ -276,7 +337,15 @@ async function load() {
   }
   finally {
     loading.value = false
+    initialLoading.value = false
   }
+}
+
+function onSearchClear() {
+  if (searchTimer)
+    clearTimeout(searchTimer)
+  page.value = 1
+  load()
 }
 
 async function applyBulkStatus() {
@@ -305,6 +374,31 @@ async function applyBulkStatus() {
   }
   finally {
     bulkSaving.value = false
+  }
+}
+
+async function downloadSelectedXls() {
+  if (!selectedOrderIds.value.length || exportingXls.value)
+    return
+  exportingXls.value = true
+  try {
+    const blob = await $fetch<Blob>('/api/admin/orders/export-xls', {
+      method: 'POST',
+      body: { order_ids: selectedOrderIds.value },
+      responseType: 'blob',
+    })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
+    link.href = url
+    link.download = `orders-${stamp}.xls`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+  }
+  finally {
+    exportingXls.value = false
   }
 }
 
@@ -343,6 +437,10 @@ watch(statusFilter, () => {
   page.value = 1
   load()
 })
+watch(orderDateRange, () => {
+  page.value = 1
+  load()
+}, { deep: true })
 watch(search, () => {
   page.value = 1
   if (searchTimer)
@@ -383,21 +481,23 @@ onMounted(async () => {
 .admin-orders-table :deep(th:nth-child(3)),
 .admin-orders-table :deep(td:nth-child(3)) { min-width: 130px; }
 .admin-orders-table :deep(th:nth-child(4)),
-.admin-orders-table :deep(td:nth-child(4)) { min-width: 180px; }
+.admin-orders-table :deep(td:nth-child(4)) { min-width: 140px; }
 .admin-orders-table :deep(th:nth-child(5)),
-.admin-orders-table :deep(td:nth-child(5)) { min-width: 220px; }
+.admin-orders-table :deep(td:nth-child(5)) { min-width: 180px; }
 .admin-orders-table :deep(th:nth-child(6)),
-.admin-orders-table :deep(td:nth-child(6)) { min-width: 300px; }
+.admin-orders-table :deep(td:nth-child(6)) { min-width: 220px; }
 .admin-orders-table :deep(th:nth-child(7)),
-.admin-orders-table :deep(td:nth-child(7)) { min-width: 130px; }
+.admin-orders-table :deep(td:nth-child(7)) { min-width: 300px; }
 .admin-orders-table :deep(th:nth-child(8)),
-.admin-orders-table :deep(td:nth-child(8)) { min-width: 140px; }
+.admin-orders-table :deep(td:nth-child(8)) { min-width: 130px; }
 .admin-orders-table :deep(th:nth-child(9)),
-.admin-orders-table :deep(td:nth-child(9)) { min-width: 150px; }
+.admin-orders-table :deep(td:nth-child(9)) { min-width: 140px; }
 .admin-orders-table :deep(th:nth-child(10)),
-.admin-orders-table :deep(td:nth-child(10)) { min-width: 170px; }
+.admin-orders-table :deep(td:nth-child(10)) { min-width: 150px; }
 .admin-orders-table :deep(th:nth-child(11)),
 .admin-orders-table :deep(td:nth-child(11)) { min-width: 170px; }
 .admin-orders-table :deep(th:nth-child(12)),
-.admin-orders-table :deep(td:nth-child(12)) { min-width: 100px; }
+.admin-orders-table :deep(td:nth-child(12)) { min-width: 170px; }
+.admin-orders-table :deep(th:nth-child(13)),
+.admin-orders-table :deep(td:nth-child(13)) { min-width: 100px; }
 </style>

@@ -31,6 +31,7 @@ export default defineEventHandler(async (event) => {
 
   const queryParams = getQuery(event)
   const q = String(queryParams.q ?? '').trim()
+  const brandId = String(queryParams.brand_id ?? '').trim()
   const categoryIds = parseCsvToUuidArray(queryParams.category_ids)
   const tagIds = parseCsvToUuidArray(queryParams.tag_ids)
   const sortByInput = String(queryParams.sort_by ?? '').trim()
@@ -89,6 +90,8 @@ export default defineEventHandler(async (event) => {
     query = query.eq('is_active', true)
   if (q)
     query = query.or(`name.ilike.%${q}%,slug.ilike.%${q}%,barcode.ilike.%${q}%`)
+  if (brandId)
+    query = query.eq('brand_id', brandId)
   if (eligibleProductIds != null)
     query = query.in('id', eligibleProductIds)
   query = query.range(from, to)

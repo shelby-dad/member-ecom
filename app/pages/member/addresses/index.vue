@@ -44,7 +44,7 @@
             class="mb-2"
             :loading="geoLoading"
           />
-          <v-select
+          <v-autocomplete
             v-model="form.state_id"
             :items="regionOptions"
             item-title="name"
@@ -54,8 +54,9 @@
             class="mb-2"
             :loading="geoLoading"
             :disabled="!form.country_id"
+            clearable
           />
-          <v-select
+          <v-autocomplete
             v-model="form.city_id"
             :items="townshipOptions"
             item-title="name"
@@ -65,6 +66,7 @@
             class="mb-2"
             :loading="geoLoading"
             :disabled="!form.state_id"
+            clearable
           />
           <v-text-field v-model="form.postal_code" label="Postal code" variant="outlined" class="mb-2" />
           <v-checkbox v-model="form.is_default" label="Default address" />

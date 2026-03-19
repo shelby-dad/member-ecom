@@ -74,6 +74,8 @@ CREATE TABLE profiles (
   id uuid PRIMARY KEY REFERENCES auth.users (id) ON DELETE CASCADE,
   email text NOT NULL,
   full_name text,
+  mobile_number text,
+  is_mobile_logged_in boolean NOT NULL DEFAULT false,
   avatar_url text,
   role app_role NOT NULL DEFAULT 'member',
   branch_id uuid REFERENCES branches (id) ON DELETE SET NULL,
@@ -452,6 +454,7 @@ CREATE TABLE orders (
   shipping_country text,
   estimate_delivery_start timestamptz,
   estimate_delivery_end timestamptz,
+  paid_at timestamptz,
   subtotal numeric(12, 2) NOT NULL CHECK (subtotal >= 0),
   total numeric(12, 2) NOT NULL CHECK (total >= 0),
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -582,6 +585,7 @@ CREATE TABLE payment_methods (
 
 CREATE TABLE payment_submissions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  invoice_number text,
   order_id uuid NOT NULL REFERENCES orders (id) ON DELETE CASCADE,
   payment_method_id uuid NOT NULL REFERENCES payment_methods (id) ON DELETE RESTRICT,
   user_id uuid NOT NULL REFERENCES auth.users (id) ON DELETE RESTRICT,
@@ -600,6 +604,7 @@ CREATE INDEX idx_payment_methods_is_active ON payment_methods (is_active);
 CREATE INDEX idx_payment_submissions_order_id ON payment_submissions (order_id);
 CREATE INDEX idx_payment_submissions_user_id ON payment_submissions (user_id);
 CREATE INDEX idx_payment_submissions_status ON payment_submissions (status);
+CREATE UNIQUE INDEX idx_payment_submissions_invoice_number ON payment_submissions (invoice_number) WHERE invoice_number IS NOT NULL;
 
 ALTER TABLE payment_methods ENABLE ROW LEVEL SECURITY;
 ALTER TABLE payment_submissions ENABLE ROW LEVEL SECURITY;

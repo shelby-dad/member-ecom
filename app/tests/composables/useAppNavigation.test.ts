@@ -16,6 +16,8 @@ describe('useAppNavigation model', () => {
       '/admin/users',
       '/staff/pos',
       '/admin/products',
+      '/admin/product-metadata',
+      '/admin/promotions',
       '/admin/orders',
       '/admin/payment-methods',
     ])

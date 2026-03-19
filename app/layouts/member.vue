@@ -1,5 +1,5 @@
 <template>
-  <AppShell role="member" brand="Shop Portal">
+  <AppShell role="member">
     <slot />
   </AppShell>
 </template>

@@ -38,11 +38,13 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 500, message: error.message })
 
   if (data?.order_id) {
+    const isVerified = parsed.data.status === 'verified'
     await supabase
       .from('orders')
       .update({
-        payment_status: parsed.data.status === 'verified' ? 'paid' : 'failed',
-        status: parsed.data.status === 'verified' ? 'confirmed' : 'pending',
+        payment_status: isVerified ? 'paid' : 'failed',
+        paid_at: isVerified ? new Date().toISOString() : null,
+        status: isVerified ? 'confirmed' : 'pending',
       })
       .eq('id', data.order_id)
   }

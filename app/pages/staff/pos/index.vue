@@ -111,6 +111,25 @@
                 <span class="text-medium-emphasis">Total amount</span>
                 <strong class="text-h6">{{ formatPrice(finalTotal) }}</strong>
               </div>
+              <div class="mt-3">
+                <div class="text-caption text-medium-emphasis mb-2">
+                  Print Option
+                </div>
+                <div class="d-flex align-center flex-wrap ga-4">
+                  <v-checkbox
+                    v-model="printSlipChecked"
+                    label="Print Slip"
+                    density="comfortable"
+                    hide-details
+                  />
+                  <v-checkbox
+                    v-model="printInvoiceChecked"
+                    label="Print Invoice"
+                    density="comfortable"
+                    hide-details
+                  />
+                </div>
+              </div>
             </div>
             <v-btn color="primary" class="mt-3" :disabled="!canCheckout" :loading="creating" @click="onCompleteSale">
               Complete sale
@@ -340,6 +359,85 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+    <v-dialog v-model="showSlipDialog" max-width="420">
+      <v-card>
+        <v-card-title>Print Slip</v-card-title>
+        <v-card-text class="slip-dialog-body">
+          <div ref="slipPrintableRef" class="slip-paper">
+            <div v-if="shopLogoUrl" class="slip-logo-wrap">
+              <img :src="shopLogoUrl" alt="Shop logo" class="slip-logo">
+            </div>
+            <div class="slip-shop-name">
+              {{ shopSettings.shop_name || 'Shop' }}
+            </div>
+            <div class="slip-shop-line" v-if="shopSettings.shop_address">
+              {{ shopSettings.shop_address }}
+            </div>
+            <div class="slip-shop-line" v-if="shopSettings.mobile_number">
+              {{ shopSettings.mobile_number }}
+            </div>
+            <div class="slip-shop-line" v-if="shopSettings.shop_email">
+              {{ shopSettings.shop_email }}
+            </div>
+
+            <div class="slip-divider" />
+            <div class="slip-row">
+              <span>Order</span>
+              <span>{{ lastCreatedOrder?.order_number || '-' }}</span>
+            </div>
+            <div class="slip-row">
+              <span>Date</span>
+              <span>{{ formatSlipDate(lastCreatedOrder?.created_at) }}</span>
+            </div>
+            <div class="slip-row">
+              <span>Member</span>
+              <span class="slip-value-end">{{ selectedMemberProfile?.full_name || selectedMemberProfile?.email || '-' }}</span>
+            </div>
+            <div class="slip-divider" />
+
+            <div
+              v-for="(item, idx) in lastCreatedOrderItems"
+              :key="`slip-item-${idx}`"
+              class="slip-item"
+            >
+              <div class="slip-item-name">
+                {{ item.product_name }} + {{ item.variant_name }}
+              </div>
+              <div class="slip-row">
+                <span>{{ item.quantity }} x {{ formatPrice(item.price) }}</span>
+                <span>{{ formatPrice(item.total) }}</span>
+              </div>
+            </div>
+
+            <div class="slip-divider" />
+            <div class="slip-row">
+              <span>Subtotal</span>
+              <span>{{ formatPrice(Number(lastCreatedOrder?.subtotal ?? 0)) }}</span>
+            </div>
+            <div class="slip-row">
+              <span>Discount</span>
+              <span>{{ formatPrice(Number(lastCreatedOrder?.discount_total ?? 0)) }}</span>
+            </div>
+            <div class="slip-row slip-total-row">
+              <span>Total</span>
+              <span>{{ formatPrice(Number(lastCreatedOrder?.total ?? 0)) }}</span>
+            </div>
+          </div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="showSlipDialog = false">
+            Close
+          </v-btn>
+          <v-btn variant="outlined" prepend-icon="mdi-download" :loading="downloadingSlipPng" @click="downloadSlipPng">
+            Download PNG
+          </v-btn>
+          <v-btn color="primary" prepend-icon="mdi-printer" @click="printSlip">
+            Print
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
     <v-snackbar v-model="snack" :color="snackSuccess ? 'success' : 'error'">
       {{ snackMsg }}
     </v-snackbar>
@@ -394,6 +492,25 @@ const showBankTransferDialog = ref(false)
 const bankTransferTransactionId = ref('')
 const showCashCheckoutDialog = ref(false)
 const cashReceiveInput = ref('')
+const printSlipChecked = ref(false)
+const printInvoiceChecked = ref(false)
+const showSlipDialog = ref(false)
+const downloadingSlipPng = ref(false)
+const slipPrintableRef = ref<HTMLElement | null>(null)
+const lastCreatedOrder = ref<any | null>(null)
+const shopSettings = ref<{
+  shop_logo: string
+  shop_name: string
+  shop_address: string
+  shop_email: string
+  mobile_number: string
+}>({
+  shop_logo: '',
+  shop_name: '',
+  shop_address: '',
+  shop_email: '',
+  mobile_number: '',
+})
 const showScannerDialog = ref(false)
 const scannerError = ref('')
 const scannerImageLoading = ref(false)
@@ -422,6 +539,23 @@ const selectedPaymentMethod = computed(() => paymentMethods.value.find(p => p.id
 const selectedPaymentMethodQrUrl = computed(() => {
   const path = String(selectedPaymentMethod.value?.image_path ?? '').trim()
   return path ? toPublicProductImageUrl(path) : ''
+})
+const shopLogoUrl = computed(() => {
+  const path = String(shopSettings.value.shop_logo ?? '').trim()
+  return path ? toPublicProductImageUrl(path) : ''
+})
+const lastCreatedOrderItems = computed(() => {
+  const raw = Array.isArray(lastCreatedOrder.value?.items) ? lastCreatedOrder.value.items : []
+  return raw.map((item: any) => {
+    const price = Number(item?.price ?? 0)
+    const quantity = Number(item?.quantity ?? 0)
+    return {
+      ...item,
+      price,
+      quantity,
+      total: Number(item?.total ?? (price * quantity)),
+    }
+  })
 })
 const cashPadKeys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0']
 const cashReceiveAmount = computed(() => {
@@ -557,6 +691,17 @@ async function loadPaymentMethods() {
 async function loadPromotions() {
   const data = await $fetch<any[]>('/api/promotions/active')
   promotions.value = data ?? []
+}
+
+async function loadShopSettings() {
+  const data = await $fetch<any>('/api/settings/public')
+  shopSettings.value = {
+    shop_logo: String(data?.shop_logo ?? ''),
+    shop_name: String(data?.shop_name ?? ''),
+    shop_address: String(data?.shop_address ?? ''),
+    shop_email: String(data?.shop_email ?? ''),
+    mobile_number: String(data?.mobile_number ?? ''),
+  }
 }
 
 function onSelectMember(member: any | null) {
@@ -916,6 +1061,164 @@ function onCashPadBackspace() {
   cashReceiveInput.value = cashReceiveInput.value.slice(0, -1)
 }
 
+function formatSlipDate(value: string | null | undefined) {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '-'
+  return date.toLocaleString()
+}
+
+function printSlip() {
+  if (!slipPrintableRef.value)
+    return
+  const body = document.body
+  body.classList.add('pos-slip-print-mode')
+  let cleaned = false
+  const cleanup = () => {
+    if (cleaned) return
+    cleaned = true
+    body.classList.remove('pos-slip-print-mode')
+  }
+  window.addEventListener('afterprint', cleanup, { once: true })
+  setTimeout(() => {
+    window.print()
+    setTimeout(cleanup, 1200)
+  }, 80)
+}
+
+async function downloadSlipPng() {
+  if (!lastCreatedOrder.value)
+    return
+  downloadingSlipPng.value = true
+  try {
+    const width = 576
+    const baseHeight = 540
+    const rowHeight = 54
+    const itemCount = lastCreatedOrderItems.value.length
+    const canvasHeight = Math.max(760, baseHeight + (itemCount * rowHeight))
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = canvasHeight
+    const ctx = canvas.getContext('2d')
+    if (!ctx)
+      throw new Error('Canvas not supported.')
+    const context = ctx
+
+    const left = 30
+    const right = width - 30
+    const center = width / 2
+    let y = 24
+
+    context.fillStyle = '#ffffff'
+    context.fillRect(0, 0, width, canvasHeight)
+    context.fillStyle = '#0f172a'
+    context.textBaseline = 'top'
+
+    const logoSrc = shopLogoUrl.value
+    if (logoSrc) {
+      try {
+        const logo = await new Promise<HTMLImageElement>((resolve, reject) => {
+          const img = new Image()
+          img.crossOrigin = 'anonymous'
+          img.onload = () => resolve(img)
+          img.onerror = () => reject(new Error('Logo failed to load'))
+          img.src = logoSrc
+        })
+        const logoSize = 86
+        const logoX = Math.round(center - logoSize / 2)
+        context.drawImage(logo, logoX, y, logoSize, logoSize)
+        y += logoSize + 12
+      }
+      catch {
+        y += 6
+      }
+    }
+
+    function centerLine(text: string, font = '500 22px Arial') {
+      if (!text) return
+      context.font = font
+      context.textAlign = 'center'
+      context.fillText(text, center, y)
+      y += 28
+    }
+
+    function rowLine(label: string, value: string, bold = false) {
+      context.font = `${bold ? '700' : '500'} 19px Arial`
+      context.textAlign = 'left'
+      context.fillText(label, left, y)
+      context.textAlign = 'right'
+      context.fillText(value, right, y)
+      y += 28
+    }
+
+    function divider() {
+      context.strokeStyle = '#64748b'
+      context.setLineDash([6, 4])
+      context.beginPath()
+      context.moveTo(left, y + 8)
+      context.lineTo(right, y + 8)
+      context.stroke()
+      context.setLineDash([])
+      y += 22
+    }
+
+    centerLine(String(shopSettings.value.shop_name || 'Shop').trim(), '700 26px Arial')
+    centerLine(String(shopSettings.value.shop_address || '').trim(), '500 18px Arial')
+    centerLine(String(shopSettings.value.mobile_number || '').trim(), '500 18px Arial')
+    centerLine(String(shopSettings.value.shop_email || '').trim(), '500 18px Arial')
+
+    divider()
+    rowLine('Order', String(lastCreatedOrder.value.order_number ?? '-'))
+    rowLine('Date', formatSlipDate(lastCreatedOrder.value.created_at))
+    rowLine('Member', String(selectedMemberProfile.value?.full_name || selectedMemberProfile.value?.email || '-'))
+    divider()
+
+    for (const item of lastCreatedOrderItems.value) {
+      const itemName = `${String(item.product_name ?? '').trim()} + ${String(item.variant_name ?? '').trim()}`.trim()
+      context.textAlign = 'left'
+      context.font = '600 19px Arial'
+      context.fillText(itemName || '-', left, y)
+      y += 26
+      rowLine(`${item.quantity} x ${formatPrice(Number(item.price ?? 0))}`, formatPrice(Number(item.total ?? 0)))
+      y += 6
+    }
+
+    divider()
+    rowLine('Subtotal', formatPrice(Number(lastCreatedOrder.value.subtotal ?? 0)))
+    rowLine('Discount', formatPrice(Number(lastCreatedOrder.value.discount_total ?? 0)))
+    rowLine('Total', formatPrice(Number(lastCreatedOrder.value.total ?? 0)), true)
+
+    const a = document.createElement('a')
+    const orderNumber = String(lastCreatedOrder.value?.order_number ?? 'slip').replace(/[^A-Za-z0-9_-]/g, '')
+    a.href = canvas.toDataURL('image/png')
+    a.download = `${orderNumber || 'slip'}.png`
+    a.click()
+  }
+  catch (e: any) {
+    snackMsg.value = e?.message ?? 'Failed to download PNG'
+    snackSuccess.value = false
+    snack.value = true
+  }
+  finally {
+    downloadingSlipPng.value = false
+  }
+}
+
+function openInvoicePrintTab(orderId: string | null | undefined) {
+  if (!orderId) return
+  navigateTo(`/print/invoice/${orderId}?from=staff`)
+}
+
+function handleAfterCheckout(order: any) {
+  if (!order)
+    return
+  lastCreatedOrder.value = order
+  if (printSlipChecked.value)
+    showSlipDialog.value = true
+  if (printInvoiceChecked.value)
+    openInvoicePrintTab(order.id)
+}
+
 function onCashModalKeydown(event: KeyboardEvent) {
   if (!showCashCheckoutDialog.value)
     return
@@ -981,17 +1284,20 @@ async function createOrder(options?: { transactionId?: string }) {
         quantity: i.quantity,
       })),
     }
-    await $fetch('/api/pos/orders', { method: 'POST', body })
+    const createdOrder = await $fetch<any>('/api/pos/orders', { method: 'POST', body })
     snackMsg.value = (methodType === 'cash' || methodType === 'bank_transfer') ? 'Sale Completed' : 'Order Created'
     snackSuccess.value = true
     snack.value = true
     posCart.value = []
     selectedPaymentMethodId.value = null
+    applyCashDefaultIfNeeded()
     selectedPromoId.value = null
     showBankTransferDialog.value = false
     bankTransferTransactionId.value = ''
     showCashCheckoutDialog.value = false
     cashReceiveInput.value = ''
+    await nextTick()
+    handleAfterCheckout(createdOrder)
   }
   catch (e: any) {
     const statusCode = Number(e?.statusCode ?? e?.response?.status ?? 0)
@@ -1014,6 +1320,7 @@ async function createOrder(options?: { transactionId?: string }) {
 onMounted(() => {
   loadPaymentMethods()
   loadPromotions()
+  loadShopSettings()
   loadVariants()
   window.addEventListener('keydown', onCashModalKeydown)
 })
@@ -1036,6 +1343,16 @@ watch(variantsPerPage, () => {
   currentVariantPage.value = 1
 })
 
+watch(printSlipChecked, (checked) => {
+  if (checked)
+    printInvoiceChecked.value = false
+})
+
+watch(printInvoiceChecked, (checked) => {
+  if (checked)
+    printSlipChecked.value = false
+})
+
 onBeforeUnmount(() => {
   if (searchTimer)
     clearTimeout(searchTimer)
@@ -1050,6 +1367,10 @@ onBeforeUnmount(() => {
   overflow: hidden;
   cursor: pointer;
   transition: transform 0.16s ease, box-shadow 0.16s ease;
+}
+
+:global(.v-theme--light) .pos-product-card {
+  border-color: rgba(148, 163, 184, 0.6) !important;
 }
 
 .pos-product-card:hover {
@@ -1167,6 +1488,75 @@ onBeforeUnmount(() => {
   border-top: 1px solid rgba(148, 163, 184, 0.3);
 }
 
+.slip-dialog-body {
+  max-height: min(70vh, 760px);
+  overflow-y: auto;
+}
+
+.slip-paper {
+  width: 3in;
+  max-width: 100%;
+  margin: 0 auto;
+  border: 1px dashed rgba(100, 116, 139, 0.45);
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  background: #fff;
+  color: #0f172a;
+}
+
+.slip-logo-wrap {
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+.slip-logo {
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 8px;
+}
+
+.slip-shop-name {
+  text-align: center;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.slip-shop-line {
+  text-align: center;
+}
+
+.slip-divider {
+  margin: 8px 0;
+  border-top: 1px dashed rgba(51, 65, 85, 0.65);
+}
+
+.slip-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.slip-value-end {
+  text-align: right;
+}
+
+.slip-item {
+  margin-bottom: 6px;
+}
+
+.slip-item-name {
+  font-weight: 600;
+}
+
+.slip-total-row {
+  font-weight: 700;
+  font-size: 13px;
+}
+
 .scanner-stage {
   position: relative;
 }
@@ -1208,5 +1598,29 @@ onBeforeUnmount(() => {
 @keyframes scanner-line-move {
   0% { top: 0; }
   100% { top: calc(100% - 2px); }
+}
+
+@media print {
+  :global(body.pos-slip-print-mode *) {
+    visibility: hidden !important;
+  }
+
+  :global(body.pos-slip-print-mode .slip-paper),
+  :global(body.pos-slip-print-mode .slip-paper *) {
+    visibility: visible !important;
+  }
+
+  :global(body.pos-slip-print-mode .slip-paper) {
+    position: fixed;
+    left: 50%;
+    top: 0;
+    transform: translateX(-50%);
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    width: 3in;
+    max-width: 3in;
+    padding: 0.08in 0.06in;
+  }
 }
 </style>

@@ -23,12 +23,12 @@ export default defineEventHandler(async (event) => {
   const supabase = await getServiceRoleClient(event)
   let query = supabase
     .from('profiles')
-    .select('id, email, full_name, role, status, wallet_balance, created_at', { count: 'exact' })
+    .select('id, email, full_name, avatar_url, mobile_number, is_mobile_logged_in, role, status, wallet_balance, created_at', { count: 'exact' })
     .order('created_at', { ascending: false })
 
   if (search.trim()) {
     const q = search.trim().replace(/,/g, ' ')
-    query = query.or(`email.ilike.%${q}%,full_name.ilike.%${q}%`)
+    query = query.or(`email.ilike.%${q}%,full_name.ilike.%${q}%,mobile_number.ilike.%${q}%`)
   }
 
   const { data, error, count } = await query.range(from, to)

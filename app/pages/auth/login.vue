@@ -5,28 +5,14 @@
         Sign in
       </v-card-title>
       <v-card-text>
-        <v-btn
-          color="primary"
-          variant="outlined"
-          block
-          class="mb-3"
-          :loading="loadingGoogle"
-          @click="signInWithGoogle"
-        >
-          <v-icon start>
-            mdi-google
-          </v-icon>
-          Continue with Google
-        </v-btn>
-        <v-divider class="my-4" />
         <v-form @submit.prevent="signIn">
           <v-text-field
-            v-model="email"
-            label="Email"
-            type="email"
+            v-model="identifier"
+            label="Email or Phone"
+            type="text"
             variant="outlined"
             density="comfortable"
-            autocomplete="email"
+            autocomplete="username"
             class="mb-2"
           />
           <v-text-field
@@ -58,61 +44,65 @@
 <script setup lang="ts">
 definePageMeta({ layout: 'default', auth: false })
 
-const email = ref('')
+const identifier = ref('')
 const password = ref('')
 const loading = ref(false)
-const loadingGoogle = ref(false)
 const error = ref('')
 
 const supabase = useSupabaseClient()
-const config = useRuntimeConfig()
+const user = useSupabaseUser()
+const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
-const { fetchProfile } = useProfile()
-
-function getRedirectUrl() {
-  const base = config.public.appUrl || (import.meta.client ? window.location.origin : '')
-  return `${base}/auth/callback`
-}
-
-async function signInWithGoogle() {
-  error.value = ''
-  loadingGoogle.value = true
-  try {
-    const { error: err } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: getRedirectUrl(),
-        queryParams: {
-          access_type: 'offline',
-          prompt: 'consent',
-        },
-      },
-    })
-    if (err)
-      throw err
-    // Redirect is handled by Supabase; we only get here if something went wrong
-  }
-  catch (e: any) {
-    error.value = e?.message ?? 'Google sign in failed'
-  }
-  finally {
-    loadingGoogle.value = false
-  }
+function getErrorMessage(e: any) {
+  const direct = String(e?.data?.message ?? e?.error_description ?? e?.message ?? '').trim()
+  if (direct)
+    return direct
+  return 'Sign in failed'
 }
 
 async function signIn() {
   error.value = ''
   loading.value = true
   try {
-    const { error: err } = await supabase.auth.signInWithPassword({ email: email.value, password: password.value })
+    const resolved = await $fetch<{ email: string }>('/api/auth/resolve-identifier', {
+      method: 'POST',
+      body: { identifier: identifier.value },
+    })
+    const { data, error: err } = await supabase.auth.signInWithPassword({ email: resolved.email, password: password.value })
     if (err)
       throw err
-    const profile = await fetchProfile()
-    const home = profile?.role === 'superadmin' ? '/superadmin' : profile?.role === 'admin' ? '/admin' : profile?.role === 'staff' ? '/staff' : '/member'
-    await navigateTo(home)
+
+    let resolvedUserId = data.user?.id ?? ''
+    for (let attempt = 0; attempt < 20 && !resolvedUserId; attempt++) {
+      const { data: sessionData } = await supabase.auth.getSession()
+      const sessionUser = sessionData.session?.user ?? null
+      if (sessionUser?.id) {
+        resolvedUserId = sessionUser.id
+        user.value = sessionUser
+        break
+      }
+      await wait(100)
+    }
+
+    if (!resolvedUserId)
+      throw createError({ statusCode: 400, message: 'Session was not established. Please try again.' })
+
+    const { data: profile, error: profileErr } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', resolvedUserId)
+      .returns<{ role: string }[]>()
+      .maybeSingle()
+
+    if (profileErr)
+      throw profileErr
+
+    const role = String(profile?.role ?? 'member')
+    const home = role === 'superadmin' ? '/superadmin' : role === 'admin' ? '/admin' : role === 'staff' ? '/staff' : '/member'
+    await navigateTo(home, { replace: true })
   }
   catch (e: any) {
-    error.value = e?.message ?? 'Sign in failed'
+    error.value = getErrorMessage(e)
   }
   finally {
     loading.value = false

@@ -7,8 +7,24 @@ html {
   font-family: tokens.$app-font-family;
 }
 
+:root {
+  --app-bg: #eef4ff;
+  --app-bg-alt: #f7fbff;
+  --app-bg-soft: #f3f8f7;
+  --app-surface-border: rgba(148, 163, 184, 0.2);
+  --app-filter-input-bg: rgba(255, 255, 255, 0.68);
+}
+
 body {
-  background: linear-gradient(155deg, #eef4ff 0%, #f7fbff 45%, #f3f8f7 100%);
+  background: linear-gradient(155deg, var(--app-bg) 0%, var(--app-bg-alt) 45%, var(--app-bg-soft) 100%);
+}
+
+.v-theme--dark {
+  --app-bg: #0d1424;
+  --app-bg-alt: #111b2e;
+  --app-bg-soft: #0b1720;
+  --app-surface-border: rgba(100, 116, 139, 0.42);
+  --app-filter-input-bg: rgba(15, 23, 42, 0.52);
 }
 
 // Custom utility classes
@@ -26,7 +42,7 @@ body {
   border-radius: tokens.$app-radius;
   transition: box-shadow tokens.$app-transition;
   box-shadow: 0 10px 24px rgba(17, 24, 39, 0.06);
-  border: 1px solid rgba(148, 163, 184, 0.2);
+  border: 1px solid var(--app-surface-border);
 }
 
 .app-shell {
@@ -52,6 +68,27 @@ body {
   font-weight: 700;
   letter-spacing: 0.01em;
   text-decoration: none;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.app-shell-brand-name {
+  white-space: nowrap;
+}
+
+.app-shell-brand-fallback {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: 700;
+  background: color-mix(in srgb, rgb(var(--v-theme-primary)) 14%, transparent);
 }
 
 .app-shell-bar {
@@ -89,4 +126,33 @@ body {
 
 .app-shell-nav .v-list-item--active .v-icon {
   color: rgb(var(--v-theme-primary));
+}
+
+.app-filter-card {
+  border: 1px solid var(--app-surface-border);
+  border-radius: 12px;
+}
+
+.app-filter-grid {
+  row-gap: 4px;
+}
+
+.app-filter-field :is(.v-field, .v-input__control) {
+  background: var(--app-filter-input-bg);
+}
+
+/* Skeleton loaders should be clean blocks without border/border-color accents */
+.v-skeleton-loader,
+.v-skeleton-loader__bone {
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+.v-skeleton-loader * {
+  border-color: transparent !important;
+}
+
+.v-card:has(.v-skeleton-loader) {
+  border: 0 !important;
+  box-shadow: none !important;
 }

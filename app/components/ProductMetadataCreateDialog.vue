@@ -26,7 +26,15 @@
             <v-btn variant="outlined" @click="showImagePicker = true">
               Choose image
             </v-btn>
-            <v-img v-if="form.image_path" :src="storageImageUrl(form.image_path)" width="58" height="36" cover class="rounded border" />
+            <div v-if="form.image_path" class="brand-modal-avatar">
+              <v-img
+                :src="storageImageUrl(form.image_path)"
+                width="48"
+                height="48"
+                contain
+                class="brand-modal-avatar-image"
+              />
+            </div>
           </div>
           <v-checkbox v-model="form.is_active" label="Active" />
         </template>
@@ -146,3 +154,20 @@ watch(() => props.modelValue, (open) => {
 })
 </script>
 
+<style scoped>
+.brand-modal-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: rgba(148, 163, 184, 0.16);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.brand-modal-avatar-image {
+  width: 100%;
+  height: 100%;
+}
+</style>

@@ -1,15 +1,24 @@
 import { z } from 'zod'
+import { defineSafeEventHandler } from '~/server/utils/api-error'
 import { getProfileOrThrow, requireRoles } from '~/server/utils/auth'
+import { enforceRateLimit } from '~/server/utils/rate-limit'
 import { getServiceRoleClient } from '~/server/utils/supabase'
+import { generateUniqueInvoiceNumber } from '~/server/utils/invoice-number'
 
 const bodySchema = z.object({
   payment_method_id: z.string().uuid(),
   transaction_id: z.string().trim().max(120).optional().nullable(),
 })
 
-export default defineEventHandler(async (event) => {
+export default defineSafeEventHandler(async (event) => {
   const profile = await getProfileOrThrow(event)
   requireRoles(profile, ['superadmin', 'admin', 'staff', 'member'])
+  enforceRateLimit(event, {
+    bucket: 'orders:payment-submission:create',
+    limit: 15,
+    windowMs: 60_000,
+    scope: profile.id,
+  })
 
   const id = getRouterParam(event, 'id')
   if (!id)
@@ -52,6 +61,7 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, message: 'Invalid payment method.' })
 
   const payload = {
+    invoice_number: await generateUniqueInvoiceNumber(supabase),
     order_id: id,
     payment_method_id: parsed.data.payment_method_id,
     user_id: profile.id,

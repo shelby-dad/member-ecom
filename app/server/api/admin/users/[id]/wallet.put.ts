@@ -3,7 +3,15 @@ import { getProfileOrThrow, requireRoles } from '~/server/utils/auth'
 import { getServiceRoleClient } from '~/server/utils/supabase'
 
 const bodySchema = z.object({
-  wallet_balance: z.number().min(0),
+  wallet_balance: z.number().min(0).optional(),
+  wallet_amount: z.number().min(0).optional(),
+}).superRefine((value, ctx) => {
+  if (value.wallet_balance == null && value.wallet_amount == null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'wallet_balance or wallet_amount is required',
+    })
+  }
 })
 
 export default defineEventHandler(async (event) => {
@@ -20,9 +28,23 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, message: parsed.error.message })
 
   const supabase = await getServiceRoleClient(event)
+  let nextBalance = Number(parsed.data.wallet_balance ?? 0)
+  if (parsed.data.wallet_amount != null) {
+    const { data: currentRow, error: currentError } = await supabase
+      .from('profiles')
+      .select('wallet_balance')
+      .eq('id', userId)
+      .maybeSingle()
+    if (currentError)
+      throw createError({ statusCode: 500, message: currentError.message })
+    if (!currentRow)
+      throw createError({ statusCode: 404, message: 'User not found' })
+    nextBalance = Number(currentRow.wallet_balance ?? 0) + Number(parsed.data.wallet_amount ?? 0)
+  }
+
   const { data, error } = await supabase
     .from('profiles')
-    .update({ wallet_balance: Number(parsed.data.wallet_balance.toFixed(2)) })
+    .update({ wallet_balance: Math.max(0, Number(nextBalance)) })
     .eq('id', userId)
     .select('id, wallet_balance')
     .single()

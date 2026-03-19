@@ -1,14 +1,39 @@
 <template>
-  <div v-if="order">
-    <h1 class="text-h4 mb-4">
-      Order {{ order.order_number }}
-    </h1>
+  <div v-if="loading">
+    <v-card class="mb-4">
+      <v-card-text>
+        <v-skeleton-loader type="heading" class="mb-3" />
+        <v-skeleton-loader type="paragraph" />
+      </v-card-text>
+    </v-card>
+    <v-card class="mb-4">
+      <v-card-text>
+        <v-skeleton-loader type="table-heading" class="mb-2" />
+        <v-skeleton-loader v-for="n in 4" :key="`detail-item-skeleton-${n}`" type="table-row-divider" class="mb-1" />
+      </v-card-text>
+    </v-card>
+  </div>
+  <div v-else-if="order">
+    <div class="d-flex align-center justify-space-between flex-wrap ga-2 mb-4">
+      <h1 class="text-h4">
+        Order {{ order.order_number }}
+      </h1>
+      <v-btn
+        color="primary"
+        variant="outlined"
+        prepend-icon="mdi-file-download-outline"
+        :to="`/print/invoice/${id}?from=member`"
+      >
+        Download Invoice
+      </v-btn>
+    </div>
     <v-card class="mb-4">
       <v-card-text>
         <p><strong>Status:</strong> {{ order.status }}</p>
         <p><strong>Payment method:</strong> {{ formatPaymentMethod(order.payment_method_type) }}</p>
         <p><strong>Payment status:</strong> {{ formatTextOrDash(order.payment_status) }}</p>
         <p><strong>Estimate delivery:</strong> {{ formatEstimateRange(order.estimate_delivery_start, order.estimate_delivery_end) }}</p>
+        <p><strong>Discount Amount:</strong> {{ formatDiscount(order.discount_total) }}</p>
         <p><strong>Total:</strong> {{ formatPrice(order.total) }}</p>
         <p><strong>Date:</strong> {{ formatDate(order.created_at) }}</p>
       </v-card-text>
@@ -50,8 +75,8 @@
       {{ snackMsg }}
     </v-snackbar>
   </div>
-  <div v-else class="text-center py-8">
-    <v-progress-circular indeterminate />
+  <div v-else class="text-center py-8 text-medium-emphasis">
+    Order not found.
   </div>
 </template>
 
@@ -61,6 +86,7 @@ const { formatPrice } = usePricingFormat()
 
 const route = useRoute()
 const id = route.params.id as string
+const loading = ref(true)
 const order = ref<any>(null)
 const orderItems = ref<any[]>([])
 const paymentMethods = ref<any[]>([])
@@ -98,11 +124,24 @@ function formatEstimateRange(start: string | null | undefined, end: string | nul
   return '-'
 }
 
+function formatDiscount(value: unknown) {
+  const n = Number(value ?? 0)
+  if (!n)
+    return '-'
+  return formatPrice(n)
+}
+
 async function load() {
-  const data = await $fetch<{ order: any, items: any[], paymentMethods: any[] }>(`/api/member/orders/${id}`)
-  order.value = data.order ?? null
-  orderItems.value = data.items ?? []
-  paymentMethods.value = data.paymentMethods ?? []
+  loading.value = true
+  try {
+    const data = await $fetch<{ order: any, items: any[], paymentMethods: any[] }>(`/api/member/orders/${id}`)
+    order.value = data.order ?? null
+    orderItems.value = data.items ?? []
+    paymentMethods.value = data.paymentMethods ?? []
+  }
+  finally {
+    loading.value = false
+  }
 }
 
 async function submitPayment() {

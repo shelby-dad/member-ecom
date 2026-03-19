@@ -1,5 +1,5 @@
 <template>
-  <AppShell role="superadmin" brand="Tenant HQ">
+  <AppShell role="superadmin">
     <slot />
   </AppShell>
 </template>

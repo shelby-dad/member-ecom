@@ -10,22 +10,23 @@
     >
       <div class="app-shell-brand pa-4">
         <NuxtLink :to="home" class="app-shell-brand-link">
-          {{ brand }}
+          <template v-if="siteFaviconUrl || !showBrandText">
+            <v-img v-if="siteFaviconUrl" :src="siteFaviconUrl" width="28" height="28" contain />
+            <span v-else class="app-shell-brand-fallback">App</span>
+          </template>
+          <span v-if="showBrandText" class="app-shell-brand-name">{{ siteDisplayName }}</span>
         </NuxtLink>
-        <p v-if="!mdAndUp || !rail" class="text-caption text-medium-emphasis mt-1 mb-0 text-uppercase">
-          {{ roleLabel }}
-        </p>
       </div>
 
       <v-divider />
 
       <v-list nav density="comfortable" class="px-2 py-3 app-shell-nav">
-        <v-list-item
+      <v-list-item
           v-for="item in items"
           :key="item.to"
           :to="item.to"
           rounded="lg"
-          :active="isActive(item.to)"
+          :active="isActiveItem(item.to)"
           class="mb-1"
           @click="handleNavClick"
         >
@@ -33,6 +34,15 @@
             <v-icon :icon="item.icon" />
           </template>
           <v-list-item-title>{{ item.label }}</v-list-item-title>
+          <template #append>
+            <v-badge
+              v-if="navItemBadgeCount(item) > 0"
+              :content="navItemBadgeCount(item)"
+              color="success"
+              class="app-shell-nav-badge"
+              inline
+            />
+          </template>
         </v-list-item>
       </v-list>
     </v-navigation-drawer>
@@ -42,14 +52,9 @@
         <v-icon>{{ drawerIcon }}</v-icon>
       </v-btn>
 
-      <v-app-bar-title class="ms-2">
-        <div class="d-flex flex-column">
-          <span class="text-subtitle-1 text-sm-h6 font-weight-medium">{{ currentPageTitle }}</span>
-          <span class="text-caption text-medium-emphasis">{{ brand }}</span>
-        </div>
-      </v-app-bar-title>
+      <v-spacer />
 
-      <v-menu v-if="!isOnBehalf && shellRole !== 'member'" location="bottom end">
+      <v-menu v-if="showRoleSwitch" location="bottom end">
         <template #activator="{ props: menuProps }">
           <v-btn
             size="small"
@@ -102,9 +107,24 @@
         </v-list>
       </v-menu>
 
-      <v-btn icon variant="text" aria-label="Sign out" @click="signOut">
-        <v-icon>mdi-logout</v-icon>
-      </v-btn>
+      <v-menu location="bottom end">
+        <template #activator="{ props: menuProps }">
+          <v-btn icon variant="text" v-bind="menuProps" aria-label="Open account menu">
+            <v-avatar size="32" color="grey-lighten-3">
+              <v-img v-if="profileAvatarUrl" :src="profileAvatarUrl" cover />
+              <v-icon v-else size="18">mdi-account</v-icon>
+            </v-avatar>
+          </v-btn>
+        </template>
+        <v-list density="comfortable" min-width="180">
+          <v-list-item prepend-icon="mdi-account-circle-outline" @click="openProfile">
+            <v-list-item-title>Profile</v-list-item-title>
+          </v-list-item>
+          <v-list-item prepend-icon="mdi-logout" @click="signOut">
+            <v-list-item-title>Logout</v-list-item-title>
+          </v-list-item>
+        </v-list>
+      </v-menu>
     </v-app-bar>
 
     <v-main class="app-shell-main">
@@ -131,25 +151,31 @@ import type { AppRole } from '~/utils/role-switch'
 
 const props = defineProps<{
   role: AppRole
-  brand: string
 }>()
 
 const route = useRoute()
+const config = useRuntimeConfig()
 const { mdAndUp } = useDisplay()
+const railCookie = useCookie<string | null>('app-shell-rail', { sameSite: 'lax', path: '/' })
+const railStorageKey = 'app-shell-rail'
 const drawer = ref(false)
-const rail = ref(false)
+const rail = ref(railCookie.value === '1')
 const baseRole = ref<AppRole | null>(null)
 const switchingRole = ref(false)
 const exitingOnBehalf = ref(false)
 const onBehalfUserId = useCookie<string | null>('on-behalf-user-id', { sameSite: 'lax', path: '/' })
 const onBehalfEmail = useCookie<string | null>('on-behalf-user-email', { sameSite: 'lax', path: '/' })
+let presenceTimer: ReturnType<typeof setInterval> | null = null
+let lastPresencePingAt = 0
 
 const { activeRole, availableRoles, syncActiveRole, setActiveRole } = useActiveRole(baseRole)
 const shellRole = computed(() => activeRole.value ?? props.role)
 const isOnBehalf = computed(() => Boolean(onBehalfUserId.value))
 const { items, home } = useAppNavigation(shellRole)
 const { colorMode, setMode, resolvedTheme } = useThemeMode()
-const { ensureProfile } = useProfile()
+const { profile, ensureProfile } = useProfile()
+const memberCart = useMemberCart()
+const { siteSettings } = useSiteSettings()
 
 const roleLabelMap: Record<AppRole, string> = {
   superadmin: 'Superadmin',
@@ -159,6 +185,45 @@ const roleLabelMap: Record<AppRole, string> = {
 }
 
 const roleLabel = computed(() => roleLabelMap[shellRole.value])
+const showBrandText = computed(() => !mdAndUp.value || !rail.value)
+const siteDisplayName = computed(() => String(siteSettings.value.site_name || '').trim() || 'App')
+const siteFaviconUrl = computed(() => {
+  const path = String(
+    siteSettings.value.site_favicon_84
+      || siteSettings.value.site_favicon_64
+      || siteSettings.value.site_favicon_512
+      || '',
+  ).trim()
+  if (!path)
+    return ''
+  if (path.startsWith('http://') || path.startsWith('https://'))
+    return path
+  const base = String(config.public.supabaseUrl || '').trim()
+  return base ? `${base}/storage/v1/object/public/product-images/${path}` : path
+})
+const showRoleSwitch = computed(() => {
+  if (!baseRole.value)
+    return shellRole.value !== 'member'
+  return baseRole.value !== 'member'
+})
+const profileRoute = computed(() => {
+  if (shellRole.value === 'superadmin')
+    return '/superadmin/profile'
+  if (shellRole.value === 'admin')
+    return '/admin/profile'
+  if (shellRole.value === 'staff')
+    return '/staff/profile'
+  return '/member/profile'
+})
+const profileAvatarUrl = computed(() => {
+  const path = String(profile.value?.avatar_url || '').trim()
+  if (!path)
+    return ''
+  if (path.startsWith('http://') || path.startsWith('https://'))
+    return path
+  const base = String(config.public.supabaseUrl || '').trim()
+  return base ? `${base}/storage/v1/object/public/product-images/${path}` : path
+})
 
 const themeOptions = [
   { label: 'Light', value: 'light' as const, icon: 'mdi-weather-sunny' },
@@ -178,15 +243,14 @@ const themeIcon = computed(() => {
   return resolvedTheme.value === 'dark' ? 'mdi-weather-night' : 'mdi-weather-sunny'
 })
 
-const currentPageTitle = computed(() => {
-  const match = [...items.value]
+const activeNavItem = computed(() => {
+  return [...items.value]
     .sort((a, b) => b.to.length - a.to.length)
-    .find(item => route.path === item.to || route.path.startsWith(`${item.to}/`))
-  return match?.label ?? props.brand
+    .find(item => route.path === item.to || route.path.startsWith(`${item.to}/`)) ?? null
 })
 
-function isActive(path: string) {
-  return route.path === path || route.path.startsWith(`${path}/`)
+function isActiveItem(path: string) {
+  return activeNavItem.value?.to === path
 }
 
 function toggleDrawer() {
@@ -208,6 +272,33 @@ function roleIcon(role: AppRole) {
   if (role === 'admin') return 'mdi-view-dashboard-outline'
   if (role === 'staff') return 'mdi-account-tie-outline'
   return 'mdi-account-outline'
+}
+
+function navItemBadgeCount(item: { to: string }) {
+  if (shellRole.value !== 'member')
+    return 0
+  if (item.to !== '/member/checkout')
+    return 0
+  return Number(memberCart.items.value.length ?? 0)
+}
+
+async function pingPresence(force = false) {
+  const now = Date.now()
+  if (!force && now - lastPresencePingAt < 9000)
+    return
+  lastPresencePingAt = now
+  try {
+    await $fetch('/api/chat/presence/ping', { method: 'POST' })
+  } catch {
+    // Presence heartbeat is best-effort.
+  }
+}
+
+function handlePresenceVisibility() {
+  if (!import.meta.client)
+    return
+  if (document.visibilityState === 'visible')
+    pingPresence(true)
 }
 
 async function switchRole(role: AppRole) {
@@ -234,14 +325,50 @@ watch(
   { immediate: true },
 )
 
+watch(rail, (value) => {
+  railCookie.value = value ? '1' : '0'
+  if (import.meta.client)
+    localStorage.setItem(railStorageKey, value ? '1' : '0')
+})
+
 onMounted(async () => {
-  const profile = await ensureProfile()
-  baseRole.value = (profile?.role as AppRole) ?? null
+  const persistedRail = localStorage.getItem(railStorageKey)
+  if (persistedRail === '1' || persistedRail === '0')
+    rail.value = persistedRail === '1'
+
+  const currentProfile = await ensureProfile()
+  baseRole.value = (currentProfile?.role as AppRole) ?? null
   syncActiveRole()
+  if ((currentProfile?.role as AppRole) === 'member')
+    await memberCart.ensureLoaded()
+
+  await pingPresence(true)
+  if (import.meta.client) {
+    presenceTimer = setInterval(() => {
+      if (document.visibilityState === 'visible')
+        pingPresence()
+    }, 10000)
+    window.addEventListener('focus', handlePresenceVisibility)
+    document.addEventListener('visibilitychange', handlePresenceVisibility)
+  }
+})
+
+onBeforeUnmount(() => {
+  if (presenceTimer)
+    clearInterval(presenceTimer)
+  if (import.meta.client) {
+    window.removeEventListener('focus', handlePresenceVisibility)
+    document.removeEventListener('visibilitychange', handlePresenceVisibility)
+  }
 })
 
 async function signOut() {
   const supabase = useSupabaseClient()
+  try {
+    await $fetch('/api/chat/presence/offline', { method: 'POST' })
+  } catch {
+    // Best-effort before sign out.
+  }
   await supabase.auth.signOut()
   useCookie('active-role').value = null
   useCookie('on-behalf-user-id').value = null
@@ -249,6 +376,10 @@ async function signOut() {
   useCookie('on-behalf-user-role').value = null
   useProfile().clearProfile()
   await navigateTo('/auth/login', { replace: true })
+}
+
+async function openProfile() {
+  await navigateTo(profileRoute.value)
 }
 
 async function exitOnBehalf() {
@@ -273,5 +404,12 @@ async function exitOnBehalf() {
 .app-on-behalf-banner {
   background: rgba(245, 158, 11, 0.16);
   border-bottom: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+.app-shell-nav-badge :deep(.v-badge__badge) {
+  font-weight: 700;
+  min-width: 20px;
+  height: 20px;
+  border-radius: 999px;
 }
 </style>
