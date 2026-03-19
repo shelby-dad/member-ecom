@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { getProfileOrThrow, requireRoles } from '~/server/utils/auth'
+import { encryptSecret } from '~/server/utils/secret-crypto'
 import { getServiceRoleClient } from '~/server/utils/supabase'
 
 const bodySchema = z.object({
@@ -44,11 +45,13 @@ export default defineEventHandler(async (event) => {
   const smtpFromName = parsed.data.smtp_from_name?.trim() ?? ''
   const smtpPassword = parsed.data.smtp_password?.trim() ?? ''
   const smtpPort = parsed.data.smtp_port ?? null
+  const cryptoKey = String(useRuntimeConfig(event).cryptoKey ?? '')
 
   const updates: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(parsed.data)) {
     if (key === 'smtp_password') {
-      updates.smtp_password = smtpPassword || null
+      if (smtpPassword)
+        updates.smtp_password = encryptSecret(smtpPassword, cryptoKey)
       continue
     }
     if (key === 'smtp_host') {

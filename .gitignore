@@ -12,6 +12,7 @@ node_modules
 .env.test.production
 .env.test.staging
 .DS_Store
+.pnpm-store
 dist
 build
 logs

@@ -22,6 +22,10 @@ export default defineNuxtConfig({
     supabaseServiceRoleKey: '',
     vapidPrivateKey: process.env.VAPID_PRIVATE_KEY ?? '',
     vapidSubject: process.env.VAPID_SUBJECT ?? '',
+    cryptoKey: process.env.CRYPTO_KEY ?? '',
+    supabaseManagementPat: process.env.SUPABASE_MANAGEMENT_PAT ?? '',
+    supabaseOrgId: process.env.SUPABASE_ORG_ID ?? '',
+    supabaseProjectRef: process.env.SUPABASE_PROJECT_REF ?? '',
     // Public (exposed via NUXT_PUBLIC_* or SUPABASE_URL for image URLs)
     public: {
       appEnv: 'development',

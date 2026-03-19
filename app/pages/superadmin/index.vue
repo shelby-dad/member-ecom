@@ -14,6 +14,154 @@
       </v-btn>
     </div>
 
+    <v-row class="mb-4">
+      <template v-if="platformLoading && !platformOverview">
+        <v-col v-for="n in 8" :key="`platform-skeleton-${n}`" cols="12" md="3">
+          <v-card class="app-card pa-4">
+            <v-skeleton-loader type="heading, article" />
+          </v-card>
+        </v-col>
+      </template>
+
+      <template v-else>
+        <v-col cols="12" md="3">
+          <v-card class="app-card pa-4">
+            <div class="text-caption text-medium-emphasis mb-1">Plan</div>
+            <div class="text-h6 font-weight-bold">{{ platformOverview?.plan_name || '-' }}</div>
+            <div class="text-caption text-medium-emphasis mt-1">Status: {{ platformOverview?.status || '-' }}</div>
+            <v-chip size="x-small" class="mt-2" :color="isLikelyFreePlan ? 'warning' : 'success'" variant="tonal">
+              {{ isLikelyFreePlan ? 'Free Plan' : 'Pro/paid plan' }}
+            </v-chip>
+          </v-card>
+        </v-col>
+
+        <v-col cols="12" md="3">
+          <v-card class="app-card pa-4">
+            <div class="text-caption text-medium-emphasis mb-1">Estimated Monthly Cost</div>
+            <div class="text-h6 font-weight-bold">{{ platformCostText }}</div>
+            <div class="text-caption text-medium-emphasis mt-1">
+              Project: {{ platformOverview?.project_ref || '-' }}
+            </div>
+          </v-card>
+        </v-col>
+
+        <v-col cols="12" md="3">
+          <v-card class="app-card pa-4">
+            <div class="text-caption text-medium-emphasis mb-1">Organization</div>
+            <div class="text-body-1 font-weight-medium text-truncate">{{ platformOverview?.organization_id || '-' }}</div>
+            <v-chip
+              class="mt-2"
+              size="small"
+              :color="platformOverview?.configured ? 'success' : 'warning'"
+              variant="tonal"
+            >
+              {{ platformOverview?.configured ? 'Configured' : 'Not configured' }}
+            </v-chip>
+          </v-card>
+        </v-col>
+
+        <v-col cols="12" md="3">
+          <v-card class="app-card pa-4">
+            <div class="text-caption text-medium-emphasis mb-1">Traffic Trend</div>
+            <div
+              class="text-h6 font-weight-bold"
+              :class="{
+                'text-success': filteredTrafficKpis.trend_percent > 0,
+                'text-error': filteredTrafficKpis.trend_percent < 0,
+              }"
+            >
+              {{ signedPercent(filteredTrafficKpis.trend_percent) }}
+            </div>
+            <div class="text-caption text-medium-emphasis mt-1">Latest vs first visible day</div>
+          </v-card>
+        </v-col>
+
+        <v-col cols="12" md="3">
+          <v-card class="app-card pa-4">
+            <div class="text-caption text-medium-emphasis mb-1">Total Requests</div>
+            <div class="text-h6 font-weight-bold">{{ compactNumber(filteredTrafficKpis.total_requests) }}</div>
+            <div class="text-caption text-medium-emphasis mt-1">Visible range</div>
+          </v-card>
+        </v-col>
+
+        <v-col cols="12" md="3">
+          <v-card class="app-card pa-4">
+            <div class="text-caption text-medium-emphasis mb-1">Average / Day</div>
+            <div class="text-h6 font-weight-bold">{{ compactNumber(filteredTrafficKpis.average_requests_per_day) }}</div>
+            <div class="text-caption text-medium-emphasis mt-1">API requests per day</div>
+          </v-card>
+        </v-col>
+
+        <v-col cols="12" md="3">
+          <v-card class="app-card pa-4">
+            <div class="text-caption text-medium-emphasis mb-1">Peak Day</div>
+            <div class="text-h6 font-weight-bold">{{ compactNumber(filteredTrafficKpis.peak_day_requests) }}</div>
+            <div class="text-caption text-medium-emphasis mt-1">{{ filteredTrafficKpis.peak_day_label }}</div>
+          </v-card>
+        </v-col>
+
+        <v-col cols="12" md="3">
+          <v-card class="app-card pa-4">
+            <div class="text-caption text-medium-emphasis mb-1">Latest Day</div>
+            <div class="text-h6 font-weight-bold">{{ compactNumber(filteredTrafficKpis.latest_day_requests) }}</div>
+            <div class="text-caption text-medium-emphasis mt-1">{{ filteredTrafficKpis.latest_day_label }}</div>
+          </v-card>
+        </v-col>
+
+        <v-col cols="12" md="8">
+          <v-card class="app-card pa-4">
+            <div class="d-flex align-center justify-space-between flex-wrap ga-2 mb-2">
+              <div class="text-subtitle-1 font-weight-medium">Traffic (API Requests)</div>
+              <v-select
+                v-if="!isTrafficSeriesLimited"
+                v-model="trafficRangeDays"
+                :items="trafficRangeItems"
+                item-title="title"
+                item-value="value"
+                density="compact"
+                variant="outlined"
+                hide-details
+                style="max-width: 150px"
+              />
+            </div>
+            <template v-if="!isTrafficSeriesLimited">
+              <DashboardColumnChart
+                :items="filteredApiRequests.map(x => ({ label: x.label, left: x.value }))"
+                left-color="#0284c7"
+                :max-points="20"
+              />
+            </template>
+            <template v-else>
+              <div class="py-6 text-center">
+                <div class="text-caption text-medium-emphasis mb-1">Current API Requests</div>
+                <div class="text-h5 font-weight-bold">{{ compactNumber(filteredTrafficKpis.latest_day_requests) }}</div>
+              </div>
+            </template>
+            <p class="text-caption text-medium-emphasis mt-3 mb-0">{{ platformOverview?.note || '-' }}</p>
+            <v-alert
+              v-if="isTrafficSeriesLimited"
+              type="info"
+              variant="tonal"
+              density="comfortable"
+              class="mt-3"
+            >
+              Free plan or limited analytics response detected. Historical daily buckets are not available from the API right now.
+            </v-alert>
+          </v-card>
+        </v-col>
+
+        <v-col cols="12" md="4">
+          <v-card class="app-card pa-4">
+            <div class="text-subtitle-1 font-weight-medium mb-2">Top Traffic Days</div>
+            <DashboardBarList v-if="!isTrafficSeriesLimited" :items="topTrafficDays" color="info" :formatter="compactNumber" />
+            <div v-else class="text-caption text-medium-emphasis">
+              Historical ranking appears when multiple day buckets are available.
+            </div>
+          </v-card>
+        </v-col>
+      </template>
+    </v-row>
+
     <v-dialog v-model="showSettings" max-width="920" persistent>
       <v-card>
         <v-card-title class="d-flex align-center">
@@ -241,12 +389,34 @@ const showShopLogoPicker = ref(false)
 const activeTab = ref<'site' | 'pricing' | 'shop' | 'barcode' | 'smtp'>('site')
 const saving = ref(false)
 const loading = ref(false)
+const platformLoading = ref(false)
+const trafficRangeDays = ref(30)
 const uploadingSiteFavicon = ref(false)
 const snack = ref(false)
 const snackMsg = ref('')
 const snackColor = ref<'success' | 'error'>('success')
 const smtpPasswordSet = ref(false)
 const siteFaviconInput = ref<HTMLInputElement | null>(null)
+const platformOverview = ref<{
+  configured: boolean
+  available: boolean
+  project_ref: string | null
+  organization_id: string | null
+  plan_name: string
+  status: string
+  estimated_monthly_cost_usd: number | null
+  api_requests: Array<{ label: string; value: number }>
+  traffic_kpis: {
+    total_requests: number
+    average_requests_per_day: number
+    peak_day_label: string
+    peak_day_requests: number
+    latest_day_label: string
+    latest_day_requests: number
+    trend_percent: number
+  }
+  note: string
+} | null>(null)
 
 const symbolPositions = [
   { title: 'Before amount', value: 'before' },
@@ -258,6 +428,12 @@ const barcodeTypes = [
   { title: 'EAN-13', value: 'ean13' },
   { title: 'UPC-A', value: 'upca' },
 ]
+const trafficRangeItems = [
+  { title: 'Last 7 days', value: 7 },
+  { title: 'Last 30 days', value: 30 },
+  { title: 'Last 90 days', value: 90 },
+]
+const trafficRangeStorageKey = 'superadmin-platform-traffic-range-days'
 
 const form = reactive({
   site_name: '',
@@ -292,6 +468,74 @@ const previewPrice = computed(() => {
   const positioned = form.pricing_symbol_position === 'after' ? `${num}${symbol}` : `${symbol}${num}`
   return `${form.pricing_sign || ''}${positioned}`
 })
+const platformCostText = computed(() => {
+  const amount = platformOverview.value?.estimated_monthly_cost_usd
+  if (amount == null || Number.isNaN(Number(amount)))
+    return '-'
+  return `$${Number(amount).toLocaleString('en-US', { maximumFractionDigits: 2 })}`
+})
+const filteredApiRequests = computed(() => {
+  const list = platformOverview.value?.api_requests || []
+  const range = Number(trafficRangeDays.value || 30)
+  if (list.length <= range)
+    return list
+  return list.slice(list.length - range)
+})
+const filteredTrafficKpis = computed(() => {
+  const series = filteredApiRequests.value
+  if (!series.length) {
+    return {
+      total_requests: 0,
+      average_requests_per_day: 0,
+      peak_day_label: '-',
+      peak_day_requests: 0,
+      latest_day_label: '-',
+      latest_day_requests: 0,
+      trend_percent: 0,
+    }
+  }
+  const total = series.reduce((sum, row) => sum + Number(row.value || 0), 0)
+  const average = total / series.length
+  const peak = series.reduce((best, row) => Number(row.value || 0) > Number(best.value || 0) ? row : best, series[0])
+  const latest = series[series.length - 1]
+  const first = series[0]
+  const trendBase = Math.max(1, Number(first.value || 0))
+  const trendPercent = ((Number(latest.value || 0) - Number(first.value || 0)) / trendBase) * 100
+  return {
+    total_requests: Math.round(total),
+    average_requests_per_day: Math.round(average),
+    peak_day_label: String(peak.label || '-'),
+    peak_day_requests: Math.round(Number(peak.value || 0)),
+    latest_day_label: String(latest.label || '-'),
+    latest_day_requests: Math.round(Number(latest.value || 0)),
+    trend_percent: Number.isFinite(trendPercent) ? Math.round(trendPercent * 10) / 10 : 0,
+  }
+})
+const topTrafficDays = computed(() => {
+  return [...filteredApiRequests.value]
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 8)
+    .map(item => ({ label: item.label, value: item.value }))
+})
+const isTrafficSeriesLimited = computed(() => filteredApiRequests.value.length <= 1)
+const isLikelyFreePlan = computed(() => /free/i.test(String(platformOverview.value?.plan_name ?? '')))
+
+function compactNumber(value: number) {
+  const n = Number(value || 0)
+  const abs = Math.abs(n)
+  if (abs >= 1_000_000_000)
+    return `${(n / 1_000_000_000).toFixed(abs >= 10_000_000_000 ? 0 : 1).replace(/\.0$/, '')}B`
+  if (abs >= 1_000_000)
+    return `${(n / 1_000_000).toFixed(abs >= 10_000_000 ? 0 : 1).replace(/\.0$/, '')}M`
+  if (abs >= 1_000)
+    return `${(n / 1_000).toFixed(abs >= 10_000 ? 0 : 1).replace(/\.0$/, '')}K`
+  return n.toLocaleString('en-US')
+}
+
+function signedPercent(value: number) {
+  const n = Number(value || 0)
+  return `${n > 0 ? '+' : ''}${n.toFixed(1)}%`
+}
 
 function assignForm(data: any) {
   form.site_name = data?.site_name ?? ''
@@ -393,6 +637,36 @@ async function openSettings() {
   showSettings.value = true
 }
 
+async function loadPlatformOverview() {
+  platformLoading.value = true
+  try {
+    platformOverview.value = await $fetch<any>('/api/superadmin/overview/platform')
+  } catch (error: any) {
+    platformOverview.value = {
+      configured: false,
+      available: false,
+      project_ref: null,
+      organization_id: null,
+      plan_name: '-',
+      status: '-',
+      estimated_monthly_cost_usd: null,
+      api_requests: [],
+      traffic_kpis: {
+        total_requests: 0,
+        average_requests_per_day: 0,
+        peak_day_label: '-',
+        peak_day_requests: 0,
+        latest_day_label: '-',
+        latest_day_requests: 0,
+        trend_percent: 0,
+      },
+      note: error?.data?.message || error?.message || 'Failed to load Supabase platform overview.',
+    }
+  } finally {
+    platformLoading.value = false
+  }
+}
+
 async function saveSettings() {
   const smtpHost = form.smtp_host.trim()
   const smtpUser = form.smtp_user.trim()
@@ -446,6 +720,22 @@ async function saveSettings() {
     saving.value = false
   }
 }
+
+onMounted(() => {
+  if (import.meta.client) {
+    const raw = window.localStorage.getItem(trafficRangeStorageKey)
+    const parsed = Number(raw || 30)
+    if ([7, 30, 90].includes(parsed))
+      trafficRangeDays.value = parsed
+  }
+  loadPlatformOverview()
+})
+
+watch(trafficRangeDays, (value) => {
+  if (!import.meta.client)
+    return
+  window.localStorage.setItem(trafficRangeStorageKey, String(value))
+})
 </script>
 
 <style scoped>

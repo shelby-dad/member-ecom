@@ -1,25 +1,41 @@
 import { getProfileOrThrow } from '~/server/utils/auth'
 import { getServiceRoleClient } from '~/server/utils/supabase'
 import { canMemberSendWhileUnassigned, isOperator } from '~/server/utils/chat'
+import { z } from 'zod'
+
+const querySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(50).default(10),
+  offset: z.coerce.number().int().min(0).default(0),
+  assignment: z.enum(['all', 'assigned', 'unassigned']).default('all'),
+})
 
 export default defineEventHandler(async (event) => {
   const profile = await getProfileOrThrow(event)
+  const parsedQuery = querySchema.safeParse(getQuery(event))
+  if (!parsedQuery.success)
+    throw createError({ statusCode: 400, message: parsedQuery.error.message })
+  const { limit, offset, assignment } = parsedQuery.data
   const supabase = await getServiceRoleClient(event)
 
   let query = supabase
     .from('chat_threads')
-    .select('id, member_id, assigned_to, assigned_by, status, banned_by, banned_at, last_message_at, last_message_preview, created_at, updated_at')
+    .select('id, member_id, assigned_to, assigned_by, status, banned_by, banned_at, last_message_at, last_message_preview, created_at, updated_at', { count: 'exact' })
     .order('last_message_at', { ascending: false, nullsFirst: false })
     .order('created_at', { ascending: false })
+    .range(offset, offset + limit - 1)
 
   if (profile.role === 'member') {
     query = query.eq('member_id', profile.id)
       .limit(1)
   } else if (profile.role === 'staff') {
     query = query.eq('assigned_to', profile.id)
+  } else if (assignment === 'assigned') {
+    query = query.not('assigned_to', 'is', null)
+  } else if (assignment === 'unassigned') {
+    query = query.is('assigned_to', null)
   }
 
-  const { data, error } = await query
+  const { data, error, count } = await query
   if (error)
     throw createError({ statusCode: 500, message: error.message })
 
@@ -106,6 +122,12 @@ export default defineEventHandler(async (event) => {
 
   return {
     scope: isOperator(profile) ? 'operator' : 'member',
+    total: Number(count ?? threads.length),
+    offset,
+    limit,
+    has_more: profile.role === 'member'
+      ? false
+      : (offset + threads.length) < Number(count ?? threads.length),
     items: threads.map((thread: any) => ({
       ...thread,
       member_message_count: profile.role === 'member' ? (memberMessageCountByThread.get(String(thread.id)) ?? 0) : null,

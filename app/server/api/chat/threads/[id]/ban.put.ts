@@ -25,6 +25,9 @@ export default defineEventHandler(async (event) => {
   assertThreadAccess(profile, thread)
 
   const nextStatus = parsed.data.status
+  if (nextStatus === 'open' && profile.role !== 'superadmin')
+    throw createError({ statusCode: 403, message: 'Only superadmin can unflag a conversation.' })
+
   const payload = nextStatus === 'banned'
     ? { status: 'banned', banned_at: new Date().toISOString(), banned_by: profile.id }
     : { status: 'open', banned_at: null, banned_by: null }

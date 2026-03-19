@@ -197,6 +197,60 @@
           />
         </v-card>
       </v-col>
+
+      <v-col cols="12">
+        <v-card class="app-card pa-4">
+          <div class="d-flex align-center justify-space-between flex-wrap ga-2 mb-3">
+            <div class="text-subtitle-1 font-weight-medium">Chat Overview</div>
+            <div class="d-flex align-center ga-2 flex-wrap">
+              <v-chip color="info" variant="tonal">Open: {{ compactNumber(analytics.chat.kpis.open_conversations) }}</v-chip>
+              <v-chip color="warning" variant="tonal">Unassigned: {{ compactNumber(analytics.chat.kpis.unassigned_conversations) }}</v-chip>
+              <v-chip color="error" variant="tonal">Flagged: {{ compactNumber(analytics.chat.kpis.flagged_conversations) }}</v-chip>
+            </div>
+          </div>
+
+          <v-row>
+            <v-col cols="12" md="8">
+              <div class="text-caption text-medium-emphasis mb-2">Conversations (new vs flagged)</div>
+              <DashboardColumnChart
+                :items="analytics.chat.conversations_trend.map(x => ({ label: x.label, left: x.left, right: x.right }))"
+                left-color="#2563eb"
+                right-color="#dc2626"
+                :max-points="14"
+              />
+              <div class="d-flex align-center ga-4 mt-2 text-caption text-medium-emphasis">
+                <span class="d-flex align-center ga-1"><i class="legend-dot legend-dot--member" />New</span>
+                <span class="d-flex align-center ga-1"><i class="legend-dot legend-dot--flagged" />Flagged</span>
+              </div>
+            </v-col>
+
+            <v-col cols="12" md="4">
+              <div class="text-caption text-medium-emphasis mb-2">Queue status</div>
+              <DashboardBarList :items="analytics.chat.queue_status" color="primary" />
+            </v-col>
+
+            <v-col cols="12" md="6">
+              <div class="text-caption text-medium-emphasis mb-2">Response time by day (minutes)</div>
+              <DashboardColumnChart
+                :items="analytics.chat.response_time_by_day.map(x => ({ label: x.label, left: x.value }))"
+                left-color="#16a34a"
+                :max-points="14"
+              />
+            </v-col>
+
+            <v-col cols="12" md="6">
+              <div class="text-caption text-medium-emphasis mb-2">Operator workload (active conversations)</div>
+              <DashboardBarList :items="analytics.chat.operator_workload" color="indigo" />
+            </v-col>
+          </v-row>
+
+          <div class="d-flex align-center ga-2 flex-wrap mt-1">
+            <v-chip color="success" variant="tonal">Avg first response: {{ analytics.chat.kpis.avg_first_response_minutes.toFixed(1) }} min</v-chip>
+            <v-chip color="primary" variant="tonal">P50: {{ analytics.chat.kpis.p50_first_response_minutes.toFixed(1) }} min</v-chip>
+            <v-chip color="deep-purple" variant="tonal">P90: {{ analytics.chat.kpis.p90_first_response_minutes.toFixed(1) }} min</v-chip>
+          </div>
+        </v-card>
+      </v-col>
     </v-row>
 
     <v-alert v-if="errorMessage" type="error" variant="tonal" class="mt-4">
@@ -243,6 +297,20 @@ interface AdminDashboardAnalytics {
     buyers: number
     repeat_buyers: number
     repeat_ratio_percent: number
+  }
+  chat: {
+    kpis: {
+      open_conversations: number
+      unassigned_conversations: number
+      flagged_conversations: number
+      avg_first_response_minutes: number
+      p50_first_response_minutes: number
+      p90_first_response_minutes: number
+    }
+    conversations_trend: Array<{ label: string; left: number; right: number }>
+    response_time_by_day: DashboardSeriesPoint[]
+    queue_status: DashboardSeriesPoint[]
+    operator_workload: DashboardSeriesPoint[]
   }
 }
 
@@ -360,6 +428,10 @@ onMounted(() => {
 
 .legend-dot--pos {
   background: #f97316;
+}
+
+.legend-dot--flagged {
+  background: #dc2626;
 }
 
 .metric-sup {

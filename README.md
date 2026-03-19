@@ -16,6 +16,7 @@ Single-tenant commerce system built with Nuxt 3, Vuetify 3, and Supabase (Auth, 
 2. Set at minimum in `.env`:
    - `SUPABASE_URL`
    - `SUPABASE_ANON_KEY`
+   - `CRYPTO_KEY` (required to encrypt/decrypt SMTP password at rest)
 3. Install and run:
    ```bash
    pnpm install
@@ -65,6 +66,7 @@ Never share keys across environments.
 | `pnpm db:full-schema` | Generate SQL schema file |
 | `pnpm db:seed` | Seed default users |
 | `pnpm clean:db` | Purge business data safely |
+| `pnpm clean:conversations` | Remove chat conversation data safely |
 
 ## Quality And Enterprise Baseline
 
@@ -82,6 +84,7 @@ See [DEV.md](/Users/benz/dev/single-tenat-shop/DEV.md) for coding rules, archite
 - Authentication + role checks on protected pages and APIs.
 - Supabase RLS for data ownership isolation.
 - Service-role key only used server-side.
+- SMTP password is encrypted at rest using `CRYPTO_KEY` (AES-256-GCM).
 - Input validation and defensive parsing in server routes.
 - Security headers:
   - `X-Frame-Options`
@@ -100,6 +103,24 @@ See [DEV.md](/Users/benz/dev/single-tenat-shop/DEV.md) for coding rules, archite
 - `app/tests/`: unit tests
 - `supabase/migrations/`: schema and policy migrations
 - `scripts/`: operational scripts
+
+## Recent Implementations (March 2026)
+
+- Chat system hardening:
+  - assignment/unassignment realtime consistency
+  - banned/flagged conversation flow for operator + member
+  - role-constrained unflag (superadmin)
+- Chat inbox UX:
+  - infinite scroll with pagination
+  - assignment filter (`All`, `Assigned`, `Unassigned`)
+  - unread behavior and ordered list updates
+- Superadmin platform overview:
+  - Supabase Management API integration (server-side PAT only)
+  - plan/status/cost + traffic metrics with Free-plan graceful fallback
+  - traffic range persistence (`7/30/90`) in local storage
+- Storage explorer:
+  - image size and file type shown in grid
+  - smart upload compression for JPEG/WebP and PNG->WebP when beneficial
 
 ## License
 

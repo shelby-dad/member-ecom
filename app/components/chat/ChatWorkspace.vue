@@ -10,14 +10,14 @@
             </div>
             <v-spacer />
             <v-btn
-              v-if="canToggleBan && selectedThread"
+              v-if="selectedThread && ((selectedThread.status !== 'banned' && canBanConversation) || (selectedThread.status === 'banned' && canUnflagConversation))"
               size="small"
               :color="selectedThread.status === 'banned' ? 'success' : 'error'"
               variant="tonal"
               :loading="banLoading"
               @click="toggleBan"
             >
-              {{ selectedThread.status === 'banned' ? 'Unban' : 'Ban' }}
+              {{ selectedThread.status === 'banned' ? 'Unflagged' : 'Ban' }}
             </v-btn>
           </v-card-title>
 
@@ -140,7 +140,38 @@
       <v-col cols="12" md="4" lg="3">
         <v-card class="app-card chat-panel">
           <v-card-title class="d-flex align-center ga-2">
-            <span>Inbox</span>
+            <v-menu v-if="showAssignmentFilter" location="bottom end">
+              <template #activator="{ props: menuProps }">
+                <v-btn
+                  size="small"
+                  variant="text"
+                  icon="mdi-filter-variant"
+                  :color="filterIconColor"
+                  aria-label="Filter conversations"
+                  v-bind="menuProps"
+                />
+              </template>
+              <v-list density="comfortable" min-width="230">
+                <v-list-item
+                  :active="assignmentFilter === 'all'"
+                  @click="setAssignmentFilter('all')"
+                >
+                  <v-list-item-title class="text-caption">All Conversations</v-list-item-title>
+                </v-list-item>
+                <v-list-item
+                  :active="assignmentFilter === 'assigned'"
+                  @click="setAssignmentFilter('assigned')"
+                >
+                  <v-list-item-title class="text-caption">Assigned Conversations</v-list-item-title>
+                </v-list-item>
+                <v-list-item
+                  :active="assignmentFilter === 'unassigned'"
+                  @click="setAssignmentFilter('unassigned')"
+                >
+                  <v-list-item-title class="text-caption">Unassigned Conversations</v-list-item-title>
+                </v-list-item>
+              </v-list>
+            </v-menu>
             <v-spacer />
             <v-btn
               size="small"
@@ -162,56 +193,71 @@
               class="mb-3"
             />
 
-            <div v-if="showThreadSkeleton" class="chat-thread-list pt-1">
-              <v-skeleton-loader
-                v-for="index in 6"
-                :key="`thread-skeleton-${index}`"
-                class="mb-2"
-                type="list-item-avatar-two-line"
-              />
-            </div>
+            <div
+              ref="threadListRef"
+              class="chat-thread-list"
+              @scroll.passive="onThreadListScroll"
+            >
+              <div v-if="showThreadSkeleton" class="pt-1">
+                <v-skeleton-loader
+                  v-for="index in 6"
+                  :key="`thread-skeleton-${index}`"
+                  class="mb-2"
+                  type="list-item-avatar-two-line"
+                />
+              </div>
 
-            <v-list v-else class="chat-thread-list" density="comfortable">
-              <v-list-item
-                v-for="thread in filteredThreads"
-                :key="thread.id"
-                :active="selectedThreadId === thread.id"
-                rounded="lg"
-                class="mb-1"
-                @click="selectThread(thread.id)"
+              <v-list v-else density="comfortable">
+                <v-list-item
+                  v-for="thread in filteredThreads"
+                  :key="thread.id"
+                  :active="selectedThreadId === thread.id"
+                  rounded="lg"
+                  class="mb-1"
+                  @click="selectThread(thread.id)"
+                >
+                  <template #prepend>
+                    <v-avatar size="34" color="grey-lighten-3">
+                      <v-img v-if="avatarUrl(threadDisplayAvatar(thread))" :src="avatarUrl(threadDisplayAvatar(thread))" cover />
+                      <v-icon v-else size="18">mdi-account</v-icon>
+                    </v-avatar>
+                  </template>
+                  <v-list-item-title class="text-body-2 font-weight-medium">
+                    {{ threadTitle(thread) }}
+                  </v-list-item-title>
+                  <v-list-item-subtitle class="text-caption text-truncate">
+                    {{ thread.last_message_preview || 'No messages yet' }}
+                  </v-list-item-subtitle>
+                  <template #append>
+                    <div class="d-flex align-center ga-1">
+                      <span
+                        class="chat-presence-dot"
+                        :class="threadPresence(thread) ? 'chat-presence-dot--online' : 'chat-presence-dot--offline'"
+                      />
+                      <span
+                        v-if="mode === 'operator' && getUnreadCount(thread.id) > 0"
+                        class="chat-unread-badge"
+                      >
+                        {{ getUnreadCount(thread.id) }}
+                      </span>
+                      <v-chip v-if="thread.status === 'banned'" size="x-small" color="error" variant="tonal">Banned</v-chip>
+                    </div>
+                  </template>
+                </v-list-item>
+                <p v-if="!filteredThreads.length" class="text-caption text-medium-emphasis mt-2 mb-0">
+                  No conversations
+                </p>
+              </v-list>
+              <div v-if="threadsLoadingMore" class="py-2 d-flex justify-center">
+                <v-progress-circular indeterminate size="18" width="2" color="primary" />
+              </div>
+              <p
+                v-if="!showThreadSkeleton && !threadsLoadingMore && threads.length > 0 && !threadsHasMore"
+                class="text-caption text-medium-emphasis text-center py-2 mb-0"
               >
-                <template #prepend>
-                  <v-avatar size="34" color="grey-lighten-3">
-                    <v-img v-if="avatarUrl(threadDisplayAvatar(thread))" :src="avatarUrl(threadDisplayAvatar(thread))" cover />
-                    <v-icon v-else size="18">mdi-account</v-icon>
-                  </v-avatar>
-                </template>
-                <v-list-item-title class="text-body-2 font-weight-medium">
-                  {{ threadTitle(thread) }}
-                </v-list-item-title>
-                <v-list-item-subtitle class="text-caption text-truncate">
-                  {{ thread.last_message_preview || 'No messages yet' }}
-                </v-list-item-subtitle>
-                <template #append>
-                  <div class="d-flex align-center ga-1">
-                    <span
-                      class="chat-presence-dot"
-                      :class="threadPresence(thread) ? 'chat-presence-dot--online' : 'chat-presence-dot--offline'"
-                    />
-                    <span
-                      v-if="mode === 'operator' && getUnreadCount(thread.id) > 0"
-                      class="chat-unread-badge"
-                    >
-                      {{ getUnreadCount(thread.id) }}
-                    </span>
-                    <v-chip v-if="thread.status === 'banned'" size="x-small" color="error" variant="tonal">Banned</v-chip>
-                  </div>
-                </template>
-              </v-list-item>
-              <p v-if="!filteredThreads.length" class="text-caption text-medium-emphasis mt-2 mb-0">
-                No conversations
+                No more conversations
               </p>
-            </v-list>
+            </div>
           </v-card-text>
         </v-card>
       </v-col>
@@ -268,6 +314,42 @@
               Start conversation
             </v-btn>
           </div>
+
+          <template v-else-if="isMemberThreadBanned">
+            <div class="chat-flagged-wrap">
+              <div class="chat-flagged-icon-wrap mb-3">
+                <v-icon size="46" color="error">mdi-flag-variant</v-icon>
+              </div>
+              <p class="text-h6 font-weight-bold mb-1">You are flagged by our shop administrator.</p>
+              <p class="text-body-2 text-medium-emphasis mb-4">Please contact the following.</p>
+              <v-card variant="tonal" class="chat-flagged-contact pa-5">
+                <div v-if="shopLogoUrl" class="d-flex justify-center mb-3">
+                  <v-avatar size="76" rounded="lg">
+                    <v-img :src="shopLogoUrl" alt="Shop logo" cover />
+                  </v-avatar>
+                </div>
+                <div class="chat-flagged-contact-row">
+                  <span class="text-medium-emphasis">Shop</span>
+                  <span class="font-weight-medium">{{ shopContact.shop_name || 'Shop' }}</span>
+                </div>
+                <v-divider class="my-2" />
+                <div class="chat-flagged-contact-row">
+                  <span class="text-medium-emphasis">Email</span>
+                  <span class="font-weight-medium">{{ shopContact.shop_email || '-' }}</span>
+                </div>
+                <v-divider class="my-2" />
+                <div class="chat-flagged-contact-row">
+                  <span class="text-medium-emphasis">Mobile</span>
+                  <span class="font-weight-medium">{{ shopContact.mobile_number || '-' }}</span>
+                </div>
+                <v-divider class="my-2" />
+                <div class="chat-flagged-contact-row">
+                  <span class="text-medium-emphasis">Address</span>
+                  <span class="font-weight-medium text-right">{{ shopContact.shop_address || '-' }}</span>
+                </div>
+              </v-card>
+            </div>
+          </template>
 
           <template v-else-if="selectedThread">
             <div ref="messageContainerRef" class="chat-message-wrap mb-3">
@@ -408,6 +490,7 @@ const sendError = ref('')
 const banLoading = ref(false)
 const assignLoading = ref(false)
 const threadsLoading = ref(false)
+const threadsLoadingMore = ref(false)
 const messagesLoading = ref(false)
 const hasLoadedThreadsOnce = ref(false)
 const hasLoadedMessagesOnce = ref(false)
@@ -415,21 +498,36 @@ const isConversationSwitching = ref(false)
 const search = ref('')
 const draft = ref('')
 const threads = ref<any[]>([])
+const threadListRef = ref<HTMLElement | null>(null)
 const messages = ref<ChatMessage[]>([])
 const pendingMessages = ref<ChatMessage[]>([])
 const unreadByThread = ref<Record<string, number>>({})
 const selectedThreadId = ref<string | null>(null)
 const operators = ref<any[]>([])
+const shopContact = ref({
+  shop_logo: '',
+  shop_name: '',
+  shop_email: '',
+  mobile_number: '',
+  shop_address: '',
+})
 const assignedTo = ref<string | null>(null)
 const messageContainerRef = ref<HTMLElement | null>(null)
 const presenceNowTick = ref(Date.now())
+const threadLimit = 10
+const threadOffset = ref(0)
+const threadsHasMore = ref(true)
+const assignmentFilter = ref<'all' | 'assigned' | 'unassigned'>('all')
 let channel: RealtimeChannel | null = null
 let presenceClockTimer: ReturnType<typeof setInterval> | null = null
 
 const actorId = computed(() => String(profile.value?.id || ''))
 const actorRole = computed(() => String(profile.value?.role || 'member'))
 const canAssignOperator = computed(() => props.mode === 'operator' && (actorRole.value === 'admin' || actorRole.value === 'superadmin'))
-const canToggleBan = computed(() => props.mode === 'operator' && ['staff', 'admin', 'superadmin'].includes(actorRole.value))
+const canBanConversation = computed(() => props.mode === 'operator' && ['staff', 'admin', 'superadmin'].includes(actorRole.value))
+const canUnflagConversation = computed(() => props.mode === 'operator' && actorRole.value === 'superadmin')
+const showAssignmentFilter = computed(() => props.mode === 'operator')
+const filterIconColor = computed(() => assignmentFilter.value === 'all' ? undefined : 'primary')
 const selectedThread = computed(() => threads.value.find((thread: any) => thread.id === selectedThreadId.value) ?? null)
 const displayedMessages = computed(() => [...messages.value, ...pendingMessages.value])
 const showThreadSkeleton = computed(() => threadsLoading.value && !hasLoadedThreadsOnce.value)
@@ -481,6 +579,12 @@ const memberConversationStatusText = computed(() => {
     return 'conversation was assigned'
   return 'conversation was unassigned'
 })
+const isMemberThreadBanned = computed(() =>
+  props.mode === 'member'
+  && Boolean(selectedThread.value)
+  && selectedThread.value?.status === 'banned',
+)
+const shopLogoUrl = computed(() => avatarUrl(shopContact.value.shop_logo))
 
 const operatorItems = computed(() => [
   { title: 'Unassigned', value: null },
@@ -641,11 +745,40 @@ function applyThreadPatchFromRealtime(payloadThread: any) {
   }
 }
 
-async function loadThreads() {
-  threadsLoading.value = true
+function mergeThreadsById(existing: any[], incoming: any[]) {
+  const map = new Map<string, any>()
+  for (const thread of existing)
+    map.set(String(thread.id), thread)
+  for (const thread of incoming)
+    map.set(String(thread.id), thread)
+  return [...map.values()]
+}
+
+async function loadThreads(options: { loadMore?: boolean; reset?: boolean } = {}) {
+  const loadMore = Boolean(options.loadMore)
+  const reset = Boolean(options.reset)
+  if (loadMore) {
+    if (threadsLoadingMore.value || threadsLoading.value || !threadsHasMore.value)
+      return
+    threadsLoadingMore.value = true
+  } else {
+    threadsLoading.value = true
+    if (reset) {
+      threadOffset.value = 0
+      threadsHasMore.value = true
+    }
+  }
   try {
-    const data = await $fetch<{ items: any[] }>('/api/chat/threads')
-    const nextThreads = data?.items ?? []
+    const requestOffset = loadMore ? threadOffset.value : 0
+    const data = await $fetch<{ items: any[]; has_more?: boolean }>('/api/chat/threads', {
+      query: {
+        limit: threadLimit,
+        offset: requestOffset,
+        assignment: showAssignmentFilter.value ? assignmentFilter.value : 'all',
+      },
+    })
+    const fetchedThreads = data?.items ?? []
+    const nextThreads = loadMore ? mergeThreadsById(threads.value, fetchedThreads) : fetchedThreads
     const nextIds = new Set(nextThreads.map((thread: any) => String(thread.id)))
     const preservedUnread: Record<string, number> = {}
     for (const [threadId, count] of Object.entries(unreadByThread.value)) {
@@ -654,6 +787,8 @@ async function loadThreads() {
     }
     unreadByThread.value = preservedUnread
     threads.value = nextThreads
+    threadOffset.value = requestOffset + fetchedThreads.length
+    threadsHasMore.value = Boolean(data?.has_more)
 
     if (props.mode === 'member' && !selectedThreadId.value && threads.value.length)
       selectedThreadId.value = threads.value[0].id
@@ -665,9 +800,30 @@ async function loadThreads() {
       assignedTo.value = selectedThread.value.assigned_to
   }
   finally {
-    threadsLoading.value = false
+    if (loadMore) {
+      threadsLoadingMore.value = false
+    } else {
+      threadsLoading.value = false
+    }
     hasLoadedThreadsOnce.value = true
   }
+}
+
+function setAssignmentFilter(value: 'all' | 'assigned' | 'unassigned') {
+  if (assignmentFilter.value === value)
+    return
+  assignmentFilter.value = value
+  selectedThreadId.value = null
+  loadThreads({ reset: true })
+}
+
+async function onThreadListScroll() {
+  if (!threadListRef.value || showThreadSkeleton.value || !threadsHasMore.value)
+    return
+  const el = threadListRef.value
+  const nearBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 56
+  if (nearBottom)
+    await loadThreads({ loadMore: true })
 }
 
 async function loadMessages() {
@@ -823,6 +979,19 @@ async function loadOperators() {
     return
   const data = await $fetch<{ items: any[] }>('/api/chat/operators')
   operators.value = data?.items ?? []
+}
+
+async function loadShopContact() {
+  if (props.mode !== 'member')
+    return
+  const data = await $fetch<any>('/api/settings/public')
+  shopContact.value = {
+    shop_logo: String(data?.shop_logo ?? '').trim(),
+    shop_name: String(data?.shop_name ?? '').trim(),
+    shop_email: String(data?.shop_email ?? '').trim(),
+    mobile_number: String(data?.mobile_number ?? '').trim(),
+    shop_address: String(data?.shop_address ?? '').trim(),
+  }
 }
 
 async function saveAssignment() {
@@ -986,7 +1155,7 @@ watch(() => displayedMessages.value.length, () => {
 onMounted(async () => {
   await ensureProfile()
   presenceClockTimer = setInterval(refreshPresenceClock, 5000)
-  await Promise.all([loadThreads(), loadOperators()])
+  await Promise.all([loadThreads(), loadOperators(), loadShopContact()])
   await prepareSound()
   const permission = await ensurePermission().catch(() => 'denied' as NotificationPermission)
   if (permission === 'granted')
@@ -1015,6 +1184,37 @@ onBeforeUnmount(() => {
   display: grid;
   place-content: center;
   gap: 16px;
+}
+
+.chat-flagged-wrap {
+  min-height: calc(74vh - 160px);
+  display: grid;
+  place-content: center;
+  text-align: center;
+}
+
+.chat-flagged-icon-wrap {
+  width: 84px;
+  height: 84px;
+  margin-inline: auto;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: rgba(var(--v-theme-error), 0.12);
+}
+
+.chat-flagged-contact {
+  width: min(560px, calc(100vw - 64px));
+  margin-inline: auto;
+  text-align: left;
+}
+
+.chat-flagged-contact-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 0.925rem;
 }
 
 .chat-empty-icon {

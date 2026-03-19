@@ -130,16 +130,26 @@
           <div>
             <div class="text-subtitle-2 mb-2">Images</div>
             <div class="d-flex flex-wrap ga-2">
-              <button
+              <div
                 v-for="file in imageItems"
                 :key="file.path"
-                type="button"
-                class="image-tile"
-                :class="{ 'image-tile--selected': file.path === selectedPath }"
-                @click="selectFile(file.path)"
+                class="image-entry"
               >
-                <v-img :src="imageUrl(file.path)" class="fill-size" cover />
-              </button>
+                <button
+                  type="button"
+                  class="image-tile"
+                  :class="{ 'image-tile--selected': file.path === selectedPath }"
+                  @click="selectFile(file.path)"
+                >
+                  <v-img :src="imageUrl(file.path)" class="fill-size" cover />
+                </button>
+                <div class="image-size text-caption text-medium-emphasis">
+                  {{ formatFileSize(file.size) }}
+                </div>
+                <div class="image-type text-caption text-medium-emphasis">
+                  {{ formatFileType(file.type, file.name) }}
+                </div>
+              </div>
             </div>
             <p v-if="!imageItems.length && !loading" class="text-caption text-medium-emphasis mt-2">
               No images in this folder.
@@ -234,7 +244,7 @@ const loading = ref(false)
 const errorMsg = ref('')
 const search = ref('')
 const currentPrefix = ref('')
-const items = ref<Array<{ name: string; path: string; kind: 'folder' | 'file' }>>([])
+const items = ref<Array<{ name: string; path: string; kind: 'folder' | 'file'; size: number | null; type: string | null }>>([])
 const pageSize = 50
 const nextOffset = ref(0)
 const hasMore = ref(true)
@@ -341,7 +351,15 @@ async function fetchPage(reset = false) {
     const pageItems = (data ?? []).map((d: any) => {
       const kind: 'folder' | 'file' = d.id ? 'file' : 'folder'
       const path = currentPrefix.value ? `${currentPrefix.value}/${d.name}` : d.name
-      return { name: d.name, path, kind }
+      const sizeValue = Number(
+        d?.metadata?.size
+          ?? d?.metadata?.size_bytes
+          ?? d?.metadata?.fileSize
+          ?? d?.size,
+      )
+      const size = Number.isFinite(sizeValue) && sizeValue >= 0 ? sizeValue : null
+      const typeRaw = String(d?.metadata?.mimetype ?? d?.metadata?.contentType ?? d?.metadata?.type ?? '').trim()
+      return { name: d.name, path, kind, size, type: typeRaw || null }
     })
 
     const map = new Map(items.value.map(i => [i.path, i]))
@@ -358,6 +376,96 @@ async function fetchPage(reset = false) {
   finally {
     loading.value = false
   }
+}
+
+function formatFileSize(size: number | null) {
+  if (size == null)
+    return '-'
+  if (size < 1024)
+    return `${size} B`
+  if (size < 1024 * 1024)
+    return `${(size / 1024).toFixed(1).replace(/\.0$/, '')} KB`
+  return `${(size / (1024 * 1024)).toFixed(2).replace(/\.00$/, '')} MB`
+}
+
+function formatFileType(type: string | null, name: string) {
+  const mime = String(type ?? '').trim().toLowerCase()
+  if (mime)
+    return mime
+  const ext = String(name ?? '').split('.').pop()?.trim().toLowerCase()
+  if (!ext)
+    return '-'
+  if (ext === 'jpg')
+    return 'image/jpeg'
+  return `image/${ext}`
+}
+
+async function readImageDimensions(file: File) {
+  const imageUrl = URL.createObjectURL(file)
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const img = new Image()
+      img.onload = () => resolve(img)
+      img.onerror = () => reject(new Error('Failed to decode image.'))
+      img.src = imageUrl
+    })
+    return { width: image.naturalWidth || image.width, height: image.naturalHeight || image.height }
+  } finally {
+    URL.revokeObjectURL(imageUrl)
+  }
+}
+
+async function compressImageForUpload(file: File): Promise<{ payload: File | Blob; ext: string; contentType?: string }> {
+  if (!import.meta.client)
+    return { payload: file, ext: file.name.split('.').pop()?.toLowerCase() || 'jpg', contentType: file.type || undefined }
+
+  const type = String(file.type || '').toLowerCase()
+  const isCompressible = type === 'image/jpeg' || type === 'image/jpg' || type === 'image/webp' || type === 'image/png'
+  if (!isCompressible)
+    return { payload: file, ext: file.name.split('.').pop()?.toLowerCase() || 'jpg', contentType: file.type || undefined }
+
+  const { width, height } = await readImageDimensions(file)
+  if (!width || !height)
+    return { payload: file, ext: file.name.split('.').pop()?.toLowerCase() || 'jpg', contentType: file.type || undefined }
+
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const ctx = canvas.getContext('2d')
+  if (!ctx)
+    return { payload: file, ext: file.name.split('.').pop()?.toLowerCase() || 'jpg', contentType: file.type || undefined }
+
+  const imageUrl = URL.createObjectURL(file)
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const img = new Image()
+      img.onload = () => resolve(img)
+      img.onerror = () => reject(new Error('Failed to process image.'))
+      img.src = imageUrl
+    })
+    ctx.drawImage(image, 0, 0, width, height)
+  } finally {
+    URL.revokeObjectURL(imageUrl)
+  }
+
+  const originalExt = file.name.split('.').pop()?.toLowerCase() || 'jpg'
+
+  if (type === 'image/png') {
+    const webpBlob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/webp', 0.92))
+    if (webpBlob && webpBlob.size < file.size * 0.97) {
+      return { payload: webpBlob, ext: 'webp', contentType: 'image/webp' }
+    }
+    return { payload: file, ext: originalExt, contentType: file.type || undefined }
+  }
+
+  const quality = 0.92
+  const outputType = type === 'image/jpg' ? 'image/jpeg' : type
+  const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, outputType, quality))
+  if (!blob || blob.size >= file.size * 0.97)
+    return { payload: file, ext: originalExt, contentType: file.type || undefined }
+
+  const nextExt = outputType === 'image/jpeg' ? 'jpg' : (outputType.split('/')[1] || originalExt)
+  return { payload: blob, ext: nextExt, contentType: outputType }
 }
 
 function goToRoot() {
@@ -557,14 +665,17 @@ async function onUploadFiles(e: Event) {
 
   errorMsg.value = ''
   for (const file of Array.from(files)) {
-    const ext = file.name.split('.').pop() || 'jpg'
-    const baseName = file.name.replace(/\.[^.]+$/, '').replace(/[^a-z0-9-_]/gi, '-').toLowerCase()
-    const safeName = `${baseName || 'image'}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${ext}`
-    const path = currentPrefix.value ? `${currentPrefix.value}/${safeName}` : safeName
-
-    const { error } = await supabase.storage.from(props.bucket).upload(path, file, { upsert: false })
-    if (error)
-      errorMsg.value = error.message
+    try {
+      const baseName = file.name.replace(/\.[^.]+$/, '').replace(/[^a-z0-9-_]/gi, '-').toLowerCase()
+      const compressed = await compressImageForUpload(file)
+      const safeName = `${baseName || 'image'}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${compressed.ext}`
+      const path = currentPrefix.value ? `${currentPrefix.value}/${safeName}` : safeName
+      const { error } = await supabase.storage.from(props.bucket).upload(path, compressed.payload, { upsert: false, contentType: compressed.contentType })
+      if (error)
+        errorMsg.value = error.message
+    } catch (error: any) {
+      errorMsg.value = error?.message ?? 'Failed to process image before upload.'
+    }
   }
 
   input.value = ''
@@ -665,6 +776,22 @@ onBeforeUnmount(() => {
   overflow: hidden;
   padding: 0;
   background: rgba(148, 163, 184, 0.08);
+}
+
+.image-entry {
+  width: 126px;
+}
+
+.image-size {
+  margin-top: 4px;
+  text-align: center;
+  line-height: 1.1;
+}
+
+.image-type {
+  margin-top: 2px;
+  text-align: center;
+  line-height: 1.1;
 }
 
 .image-tile--selected {

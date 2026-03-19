@@ -139,3 +139,16 @@ This document defines engineering standards for production-grade delivery in thi
 - CI test job now runs:
   - `pnpm test:coverage`
 - Coverage thresholds are enforced in `vitest.config.ts`.
+
+## 14) Latest Implementation Notes (March 20, 2026)
+
+- Superadmin platform overview now supports Supabase Management API integration with server-only secrets:
+  - `SUPABASE_MANAGEMENT_PAT`
+  - `SUPABASE_ORG_ID`
+  - `SUPABASE_PROJECT_REF` (optional, derived from `SUPABASE_URL` if omitted)
+- Free-plan compatibility rule:
+  - if analytics returns a single aggregated point, UI switches to current-usage mode and shows guidance instead of pretending historical buckets exist.
+- SMTP settings security rule:
+  - `smtp_password` must be encrypted at rest with `CRYPTO_KEY` and never returned raw from API.
+- Storage explorer upload rule:
+  - client-side compression is allowed only when output materially reduces size; keep original when compression gain is negligible.

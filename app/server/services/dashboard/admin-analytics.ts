@@ -42,6 +42,22 @@ interface StockRow {
   quantity: number
 }
 
+interface ChatThreadRow {
+  id: string
+  member_id: string
+  assigned_to: string | null
+  status: 'open' | 'banned'
+  created_at: string
+  banned_at: string | null
+}
+
+interface ChatMessageRow {
+  thread_id: string
+  sender_id: string
+  created_at: string
+  read_at: string | null
+}
+
 export interface DashboardSeriesPoint {
   label: string
   value: number
@@ -90,6 +106,20 @@ export interface AdminDashboardAnalytics {
     repeat_buyers: number
     repeat_ratio_percent: number
   }
+  chat: {
+    kpis: {
+      open_conversations: number
+      unassigned_conversations: number
+      flagged_conversations: number
+      avg_first_response_minutes: number
+      p50_first_response_minutes: number
+      p90_first_response_minutes: number
+    }
+    conversations_trend: DashboardDualSeriesPoint[]
+    response_time_by_day: DashboardSeriesPoint[]
+    queue_status: DashboardSeriesPoint[]
+    operator_workload: DashboardSeriesPoint[]
+  }
 }
 
 const ORDER_STATUS_ORDER = ['pending', 'processing', 'shipped', 'delivered', 'cancelled']
@@ -129,6 +159,178 @@ function toNumber(value: unknown) {
 
 function round2(value: number) {
   return Math.round(value * 100) / 100
+}
+
+function percentile(sortedValues: number[], p: number) {
+  if (!sortedValues.length)
+    return 0
+  if (sortedValues.length === 1)
+    return sortedValues[0]
+  const index = Math.ceil((p / 100) * sortedValues.length) - 1
+  const bounded = Math.min(Math.max(index, 0), sortedValues.length - 1)
+  return sortedValues[bounded]
+}
+
+async function buildChatAnalytics(
+  supabase: Awaited<ReturnType<typeof getServiceRoleClient>>,
+  dayKeys: string[],
+  startIso: string,
+) {
+  const { data: chatThreadsRaw, error: chatThreadsErr } = await supabase
+    .from('chat_threads')
+    .select('id, member_id, assigned_to, status, created_at, banned_at')
+  if (chatThreadsErr)
+    throw createError({ statusCode: 500, message: chatThreadsErr.message })
+  const chatThreads = (chatThreadsRaw ?? []) as ChatThreadRow[]
+
+  const openConversations = chatThreads.filter(t => t.status !== 'banned').length
+  const unassignedConversations = chatThreads.filter(t => t.status !== 'banned' && !t.assigned_to).length
+  const flaggedConversations = chatThreads.filter(t => t.status === 'banned').length
+
+  const newMap = Object.fromEntries(dayKeys.map(k => [k, 0])) as Record<string, number>
+  const flaggedMap = Object.fromEntries(dayKeys.map(k => [k, 0])) as Record<string, number>
+  for (const thread of chatThreads) {
+    const createdDay = toDayKey(thread.created_at)
+    if (newMap[createdDay] !== undefined)
+      newMap[createdDay] += 1
+    if (thread.banned_at) {
+      const bannedDay = toDayKey(thread.banned_at)
+      if (flaggedMap[bannedDay] !== undefined)
+        flaggedMap[bannedDay] += 1
+    }
+  }
+
+  const scopedThreadIds = chatThreads
+    .filter(thread => new Date(thread.created_at).getTime() >= new Date(startIso).getTime())
+    .map(thread => thread.id)
+  const scopedThreadSet = new Set(scopedThreadIds)
+  const threadById = new Map(chatThreads.map(thread => [thread.id, thread] as const))
+
+  const messages: ChatMessageRow[] = []
+  for (const ids of chunk(scopedThreadIds, 200)) {
+    const { data, error } = await supabase
+      .from('chat_messages')
+      .select('thread_id, sender_id, created_at, read_at')
+      .in('thread_id', ids)
+      .order('created_at', { ascending: true })
+    if (error)
+      throw createError({ statusCode: 500, message: error.message })
+    messages.push(...((data ?? []) as ChatMessageRow[]))
+  }
+
+  const firstMemberAtByThread = new Map<string, number>()
+  const firstOperatorReplyAtByThread = new Map<string, number>()
+  const unreadMemberByThread = new Map<string, number>()
+
+  for (const message of messages) {
+    const thread = threadById.get(String(message.thread_id))
+    if (!thread)
+      continue
+    const createdAtMs = new Date(message.created_at).getTime()
+    const isMemberMessage = String(message.sender_id) === String(thread.member_id)
+
+    if (isMemberMessage && !firstMemberAtByThread.has(thread.id))
+      firstMemberAtByThread.set(thread.id, createdAtMs)
+
+    if (!isMemberMessage) {
+      const firstMemberAt = firstMemberAtByThread.get(thread.id)
+      if (firstMemberAt && createdAtMs >= firstMemberAt && !firstOperatorReplyAtByThread.has(thread.id))
+        firstOperatorReplyAtByThread.set(thread.id, createdAtMs)
+    }
+
+    if (thread.assigned_to && isMemberMessage && !message.read_at)
+      unreadMemberByThread.set(thread.id, (unreadMemberByThread.get(thread.id) ?? 0) + 1)
+  }
+
+  const responseMinutesByThread = new Map<string, number>()
+  for (const threadId of scopedThreadIds) {
+    const firstMemberAt = firstMemberAtByThread.get(threadId)
+    const firstReplyAt = firstOperatorReplyAtByThread.get(threadId)
+    if (!firstMemberAt || !firstReplyAt || firstReplyAt < firstMemberAt)
+      continue
+    const minutes = (firstReplyAt - firstMemberAt) / 60_000
+    if (Number.isFinite(minutes) && minutes >= 0)
+      responseMinutesByThread.set(threadId, round2(minutes))
+  }
+
+  const responseValues = [...responseMinutesByThread.values()].sort((a, b) => a - b)
+  const avgFirstResponse = responseValues.length
+    ? round2(responseValues.reduce((sum, value) => sum + value, 0) / responseValues.length)
+    : 0
+  const p50FirstResponse = round2(percentile(responseValues, 50))
+  const p90FirstResponse = round2(percentile(responseValues, 90))
+
+  const responseByDayMap = Object.fromEntries(dayKeys.map(k => [k, { total: 0, count: 0 }])) as Record<string, { total: number; count: number }>
+  for (const [threadId, minutes] of responseMinutesByThread.entries()) {
+    const thread = threadById.get(threadId)
+    if (!thread)
+      continue
+    const day = toDayKey(thread.created_at)
+    if (!responseByDayMap[day])
+      continue
+    responseByDayMap[day].total += minutes
+    responseByDayMap[day].count += 1
+  }
+
+  const { data: operatorRows, error: operatorErr } = await supabase
+    .from('profiles')
+    .select('id, full_name, email, role')
+    .in('role', ['staff', 'admin', 'superadmin'])
+    .eq('status', 'active')
+  if (operatorErr)
+    throw createError({ statusCode: 500, message: operatorErr.message })
+
+  const workloadMap = new Map<string, { label: string; active: number; unread: number }>()
+  for (const operator of operatorRows ?? []) {
+    const id = String((operator as any).id ?? '')
+    if (!id)
+      continue
+    const label = String((operator as any).full_name ?? '').trim()
+      || String((operator as any).email ?? '').trim()
+      || 'Operator'
+    workloadMap.set(id, { label, active: 0, unread: 0 })
+  }
+
+  for (const thread of chatThreads) {
+    if (!thread.assigned_to || !workloadMap.has(String(thread.assigned_to)))
+      continue
+    if (thread.status !== 'banned')
+      workloadMap.get(String(thread.assigned_to))!.active += 1
+    if (scopedThreadSet.has(thread.id))
+      workloadMap.get(String(thread.assigned_to))!.unread += unreadMemberByThread.get(thread.id) ?? 0
+  }
+
+  return {
+    kpis: {
+      open_conversations: openConversations,
+      unassigned_conversations: unassignedConversations,
+      flagged_conversations: flaggedConversations,
+      avg_first_response_minutes: avgFirstResponse,
+      p50_first_response_minutes: p50FirstResponse,
+      p90_first_response_minutes: p90FirstResponse,
+    },
+    conversations_trend: dayKeys.map(day => ({
+      label: toShortLabel(day),
+      left: newMap[day],
+      right: flaggedMap[day],
+    })),
+    response_time_by_day: dayKeys.map(day => ({
+      label: toShortLabel(day),
+      value: responseByDayMap[day].count ? round2(responseByDayMap[day].total / responseByDayMap[day].count) : 0,
+    })),
+    queue_status: [
+      { label: 'Assigned', value: Math.max(0, openConversations - unassignedConversations) },
+      { label: 'Unassigned', value: unassignedConversations },
+      { label: 'Flagged', value: flaggedConversations },
+    ],
+    operator_workload: [...workloadMap.values()]
+      .map(row => ({
+        label: row.unread > 0 ? `${row.label} (${row.unread} unread)` : row.label,
+        value: row.active,
+      }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 10),
+  }
 }
 
 export async function getAdminDashboardAnalytics(event: H3Event, rangeDays: number): Promise<AdminDashboardAnalytics> {
@@ -306,6 +508,7 @@ export async function getAdminDashboardAnalytics(event: H3Event, rangeDays: numb
   }
   const buyers = [...buyerCount.keys()].length
   const repeatBuyers = [...buyerCount.values()].filter(v => v >= 2).length
+  const chat = await buildChatAnalytics(supabase, dayKeys, startIso)
 
   return {
     range_days: rangeDays,
@@ -369,5 +572,6 @@ export async function getAdminDashboardAnalytics(event: H3Event, rangeDays: numb
       repeat_buyers: repeatBuyers,
       repeat_ratio_percent: buyers ? round2((repeatBuyers / buyers) * 100) : 0,
     },
+    chat,
   }
 }

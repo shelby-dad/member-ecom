@@ -1,4 +1,5 @@
 import type { H3Event } from 'h3'
+import { decryptSecret } from '~/server/utils/secret-crypto'
 import { getServiceRoleClient } from '~/server/utils/supabase'
 
 export type BarcodeType = 'code128' | 'ean13' | 'upca'
@@ -56,6 +57,7 @@ export const defaultAppSettings: AppSettingsRow = {
 }
 
 export async function getAppSettings(event: H3Event): Promise<AppSettingsRow> {
+  const cryptoKey = String(useRuntimeConfig(event).cryptoKey ?? '')
   const supabase = await getServiceRoleClient(event)
   const { data, error } = await supabase
     .from('app_settings')
@@ -76,8 +78,20 @@ export async function getAppSettings(event: H3Event): Promise<AppSettingsRow> {
     if (insertError || !inserted)
       throw createError({ statusCode: 500, message: insertError?.message ?? 'Failed to initialize app settings' })
 
-    return { ...defaultAppSettings, ...inserted }
+    const initialized = { ...defaultAppSettings, ...inserted }
+    return {
+      ...initialized,
+      smtp_password: initialized.smtp_password
+        ? decryptSecret(String(initialized.smtp_password), cryptoKey)
+        : null,
+    }
   }
 
-  return { ...defaultAppSettings, ...data }
+  const settings = { ...defaultAppSettings, ...data }
+  return {
+    ...settings,
+    smtp_password: settings.smtp_password
+      ? decryptSecret(String(settings.smtp_password), cryptoKey)
+      : null,
+  }
 }
