@@ -9,14 +9,15 @@ export interface ChatPushRecipient {
 
 let vapidConfigured = false
 
-function resolveInboxPath(role: ChatPushRecipient['role']) {
+function resolveInboxPath(role: ChatPushRecipient['role'], threadId?: string | null) {
+  const normalizedThreadId = String(threadId ?? '').trim()
   if (role === 'member')
     return '/member/chat'
   if (role === 'staff')
-    return '/staff/inbox'
+    return normalizedThreadId ? `/staff/inbox/${normalizedThreadId}` : '/staff/inbox'
   if (role === 'superadmin')
-    return '/superadmin/inbox'
-  return '/admin/inbox'
+    return normalizedThreadId ? `/superadmin/inbox/${normalizedThreadId}` : '/superadmin/inbox'
+  return normalizedThreadId ? `/admin/inbox/${normalizedThreadId}` : '/admin/inbox'
 }
 
 function configureVapidIfNeeded(event: H3Event) {
@@ -42,6 +43,8 @@ export async function sendChatPushToRecipients(
     recipients: ChatPushRecipient[]
     title: string
     body: string
+    sentAt?: string
+    threadId?: string
   },
 ) {
   if (!configureVapidIfNeeded(event))
@@ -73,9 +76,11 @@ export async function sendChatPushToRecipients(
 
     const payload = JSON.stringify({
       title: input.title,
+      sender_name: input.title,
       body: input.body,
-      url: resolveInboxPath(recipientRole),
+      url: resolveInboxPath(recipientRole, input.threadId),
       ts: Date.now(),
+      sent_at: input.sentAt ?? null,
     })
 
     try {

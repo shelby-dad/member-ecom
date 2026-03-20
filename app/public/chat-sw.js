@@ -27,6 +27,24 @@ self.addEventListener('notificationclick', (event) => {
 })
 
 self.addEventListener('push', (event) => {
+  const formatRelative = (value) => {
+    const date = value ? new Date(value) : new Date()
+    const diff = Math.max(0, Date.now() - date.getTime())
+    const sec = Math.floor(diff / 1000)
+    if (sec < 10)
+      return 'just now'
+    if (sec < 60)
+      return `${sec}s ago`
+    const min = Math.floor(sec / 60)
+    if (min < 60)
+      return `${min}m ago`
+    const hr = Math.floor(min / 60)
+    if (hr < 24)
+      return `${hr}h ago`
+    const day = Math.floor(hr / 24)
+    return `${day}d ago`
+  }
+
   let payload = {}
   try {
     payload = event.data?.json?.() ?? {}
@@ -34,8 +52,10 @@ self.addEventListener('push', (event) => {
   catch {
     payload = {}
   }
-  const title = payload.title || 'New message'
-  const body = payload.body || 'You have a new chat message.'
+  const title = String(payload.title || payload.sender_name || 'New message').trim() || 'New message'
+  const textBody = payload.body || 'You have a new chat message.'
+  const timeLabel = formatRelative(payload.sent_at || payload.ts)
+  const body = `${textBody}\n${timeLabel}`
   const url = payload.url || '/admin/inbox'
 
   event.waitUntil(self.registration.showNotification(title, {

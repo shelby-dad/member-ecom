@@ -146,10 +146,20 @@ export default defineEventHandler(async (event) => {
   }
 
   if (recipients.length) {
+    const { data: senderProfile } = await supabase
+      .from('profiles')
+      .select('full_name, email')
+      .eq('id', profile.id)
+      .maybeSingle()
+    const senderName = String((senderProfile as any)?.full_name ?? '').trim()
+      || String((senderProfile as any)?.email ?? '').trim()
+      || 'User'
     await sendChatPushToRecipients(event, {
       recipients,
-      title: profile.role === 'member' ? 'New member message' : 'Shop message',
+      title: senderName,
       body: buildChatNotificationBody(message, Boolean(attachmentPath)),
+      sentAt: String(data.created_at),
+      threadId: String(threadId),
     })
   }
 

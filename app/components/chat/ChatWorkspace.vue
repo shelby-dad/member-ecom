@@ -630,11 +630,13 @@ const threadLimit = 10
 const threadOffset = ref(0)
 const threadsHasMore = ref(true)
 const assignmentFilter = ref<'all' | 'assigned' | 'unassigned'>('all')
+const pushReady = ref(false)
 let channel: RealtimeChannel | null = null
 let presenceClockTimer: ReturnType<typeof setInterval> | null = null
 
 const actorId = computed(() => String(profile.value?.id || ''))
 const actorRole = computed(() => String(profile.value?.role || 'member'))
+const routeConversationId = computed(() => String(route.params?.conversationId ?? '').trim() || null)
 const canAssignOperator = computed(() => props.mode === 'operator' && (actorRole.value === 'admin' || actorRole.value === 'superadmin'))
 const canBanConversation = computed(() => props.mode === 'operator' && ['staff', 'admin', 'superadmin'].includes(actorRole.value))
 const canUnflagConversation = computed(() => props.mode === 'operator' && actorRole.value === 'superadmin')
@@ -843,6 +845,18 @@ function threadTitle(thread: any) {
   return thread?.member?.full_name || thread?.member?.email || 'Member'
 }
 
+function operatorInboxBasePath() {
+  if (route.path.startsWith('/staff/inbox'))
+    return '/staff/inbox'
+  if (route.path.startsWith('/superadmin/inbox'))
+    return '/superadmin/inbox'
+  return '/admin/inbox'
+}
+
+function operatorThreadPath(threadId: string) {
+  return `${operatorInboxBasePath()}/${threadId}`
+}
+
 function threadPresence(thread: any) {
   const subject = props.mode === 'operator' ? thread?.member : thread?.assigned
   const lastSeen = String(subject?.presence_last_seen_at ?? '').trim()
@@ -1043,8 +1057,20 @@ async function loadThreads(options: { loadMore?: boolean; reset?: boolean } = {}
     if (props.mode === 'member' && !selectedThreadId.value && threads.value.length)
       selectedThreadId.value = threads.value[0].id
 
-    if (selectedThreadId.value && !threads.value.some((thread: any) => thread.id === selectedThreadId.value))
+    if (props.mode === 'operator') {
+      if (routeConversationId.value) {
+        if (threads.value.some((thread: any) => String(thread.id) === routeConversationId.value)) {
+          if (selectedThreadId.value !== routeConversationId.value)
+            selectedThreadId.value = routeConversationId.value
+        } else if (selectedThreadId.value === routeConversationId.value) {
+          selectedThreadId.value = null
+        }
+      } else if (selectedThreadId.value && !threads.value.some((thread: any) => thread.id === selectedThreadId.value)) {
+        selectedThreadId.value = null
+      }
+    } else if (selectedThreadId.value && !threads.value.some((thread: any) => thread.id === selectedThreadId.value)) {
       selectedThreadId.value = null
+    }
 
     if (selectedThread.value)
       assignedTo.value = selectedThread.value.assigned_to
@@ -1105,6 +1131,11 @@ async function selectThread(threadId: string) {
   isConversationSwitching.value = true
   clearUnread(threadId)
   clearAttachmentSelection()
+  if (props.mode === 'operator') {
+    const target = operatorThreadPath(threadId)
+    if (route.path !== target)
+      await navigateTo(target)
+  }
   selectedThreadId.value = threadId
 }
 
@@ -1305,7 +1336,8 @@ async function enableNotifications() {
   const permission = await ensurePermission()
   await prepareSound()
   if (permission === 'granted') {
-    await registerPushSubscription(String(config.public.vapidPublicKey ?? '')).catch(() => false)
+    const ok = await registerPushSubscription(String(config.public.vapidPublicKey ?? '')).catch(() => false)
+    pushReady.value = Boolean(ok)
     await notifyMessage(
       'Chat notifications enabled',
       'This device is ready for new chat message alerts.',
@@ -1383,11 +1415,17 @@ async function handleIncomingNotification(payload: any) {
     })
   }
 
+  // Deduplicate when web-push is active; service worker will display notification.
+  if (pushReady.value)
+    return
+
   const title = props.mode === 'member' ? 'Shop message' : 'New member message'
   const body = formatNotificationBody(incomingMessage, incomingHasAttachment)
   const url = props.mode === 'member'
     ? '/member/chat'
-    : (actorRole.value === 'staff' ? '/staff/inbox' : actorRole.value === 'superadmin' ? '/superadmin/inbox' : '/admin/inbox')
+    : incomingThreadId
+      ? operatorThreadPath(incomingThreadId)
+      : (actorRole.value === 'staff' ? '/staff/inbox' : actorRole.value === 'superadmin' ? '/superadmin/inbox' : '/admin/inbox')
 
   await notifyMessage(title, body, url, { forcePush: true })
 }
@@ -1440,6 +1478,20 @@ watch(selectedThreadId, () => {
   loadMessages()
 })
 
+watch(routeConversationId, (nextId) => {
+  if (props.mode !== 'operator')
+    return
+  if (!nextId) {
+    selectedThreadId.value = null
+    return
+  }
+  if (selectedThreadId.value !== nextId) {
+    isConversationSwitching.value = true
+    clearUnread(nextId)
+    selectedThreadId.value = nextId
+  }
+})
+
 watch(() => displayedMessages.value.length, () => {
   scrollToBottomDebounced()
 })
@@ -1450,8 +1502,12 @@ onMounted(async () => {
   await Promise.all([loadThreads(), loadOperators(), loadShopContact()])
   await prepareSound()
   const permission = await ensurePermission().catch(() => 'denied' as NotificationPermission)
-  if (permission === 'granted')
-    await registerPushSubscription(String(config.public.vapidPublicKey ?? '')).catch(() => false)
+  if (permission === 'granted') {
+    const ok = await registerPushSubscription(String(config.public.vapidPublicKey ?? '')).catch(() => false)
+    pushReady.value = Boolean(ok)
+  } else {
+    pushReady.value = false
+  }
   if (selectedThreadId.value)
     await loadMessages()
   setupRealtime()

@@ -184,6 +184,7 @@ const supabase = useSupabaseClient()
 const { notifyMessage, prepareSound } = useChatNotifications()
 const { registerPushSubscription } = useChatPush()
 const chatUnreadCount = ref(0)
+const chatPushReady = ref(false)
 
 const roleLabelMap: Record<AppRole, string> = {
   superadmin: 'Superadmin',
@@ -319,6 +320,14 @@ function canUseRealtimeUnread() {
   return Notification.permission === 'granted'
 }
 
+function hasWebPushSupport() {
+  if (!import.meta.client)
+    return false
+  return 'serviceWorker' in navigator
+    && 'PushManager' in window
+    && window.isSecureContext
+}
+
 function isChatRoute(path: string) {
   return path.startsWith('/member/chat')
     || path.startsWith('/staff/inbox')
@@ -342,14 +351,15 @@ function notificationBodyFromMessage(message: string, hasAttachment: boolean) {
   return 'received image'
 }
 
-function notificationTargetPath() {
+function notificationTargetPath(threadId?: string | null) {
+  const normalizedThreadId = String(threadId ?? '').trim()
   if (shellRole.value === 'member')
     return '/member/chat'
   if (shellRole.value === 'staff')
-    return '/staff/inbox'
+    return normalizedThreadId ? `/staff/inbox/${normalizedThreadId}` : '/staff/inbox'
   if (shellRole.value === 'superadmin')
-    return '/superadmin/inbox'
-  return '/admin/inbox'
+    return normalizedThreadId ? `/superadmin/inbox/${normalizedThreadId}` : '/superadmin/inbox'
+  return normalizedThreadId ? `/admin/inbox/${normalizedThreadId}` : '/admin/inbox'
 }
 
 async function refreshChatUnreadCount() {
@@ -404,11 +414,17 @@ async function setupUnreadWatchers() {
         if (isChatRoute(route.path))
           return
 
+        // Avoid duplicate notifications (Safari especially):
+        // when web-push is active, service worker push will notify.
+        if (chatPushReady.value)
+          return
+
         const incomingMessage = String(payload?.new?.message ?? '')
         const hasAttachment = Boolean(payload?.new?.attachment_path)
+        const incomingThreadId = String(payload?.new?.thread_id ?? '')
         const title = shellRole.value === 'member' ? 'Shop message' : 'New member message'
         const body = notificationBodyFromMessage(incomingMessage, hasAttachment)
-        await notifyMessage(title, body, notificationTargetPath(), { forcePush: true })
+        await notifyMessage(title, body, notificationTargetPath(incomingThreadId), { forcePush: true })
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_threads' }, () => {
         scheduleUnreadRefresh()
@@ -492,8 +508,12 @@ onMounted(async () => {
     await memberCart.ensureLoaded()
   await setupUnreadWatchers()
   await prepareSound()
-  if (import.meta.client && typeof Notification !== 'undefined' && Notification.permission === 'granted')
-    await registerPushSubscription(String(config.public.vapidPublicKey ?? '')).catch(() => false)
+  if (import.meta.client && typeof Notification !== 'undefined' && Notification.permission === 'granted' && hasWebPushSupport()) {
+    const ok = await registerPushSubscription(String(config.public.vapidPublicKey ?? '')).catch(() => false)
+    chatPushReady.value = Boolean(ok)
+  } else {
+    chatPushReady.value = false
+  }
 
   await pingPresence(true)
   if (import.meta.client) {
