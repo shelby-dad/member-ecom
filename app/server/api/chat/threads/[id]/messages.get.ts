@@ -33,7 +33,7 @@ export default defineEventHandler(async (event) => {
 
   const { data: messages, error } = await supabase
     .from('chat_messages')
-    .select('id, thread_id, sender_id, message, read_at, created_at')
+    .select('id, thread_id, sender_id, message, read_at, created_at, attachment_path, attachment_name, attachment_mime_type, attachment_size_bytes')
     .eq('thread_id', threadId)
     .order('created_at', { ascending: true })
     .limit(parsed.data.limit)

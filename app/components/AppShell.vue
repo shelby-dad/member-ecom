@@ -38,7 +38,7 @@
             <v-badge
               v-if="navItemBadgeCount(item) > 0"
               :content="navItemBadgeCount(item)"
-              color="success"
+              :color="navItemBadgeColor(item)"
               class="app-shell-nav-badge"
               inline
             />
@@ -145,6 +145,7 @@
 </template>
 
 <script setup lang="ts">
+import type { RealtimeChannel } from '@supabase/supabase-js'
 import { useDisplay } from 'vuetify'
 import { getRoleHome } from '~/composables/useAppNavigation'
 import type { AppRole } from '~/utils/role-switch'
@@ -167,6 +168,9 @@ const onBehalfUserId = useCookie<string | null>('on-behalf-user-id', { sameSite:
 const onBehalfEmail = useCookie<string | null>('on-behalf-user-email', { sameSite: 'lax', path: '/' })
 let presenceTimer: ReturnType<typeof setInterval> | null = null
 let lastPresencePingAt = 0
+let chatUnreadPollTimer: ReturnType<typeof setInterval> | null = null
+let chatUnreadDebounceTimer: ReturnType<typeof setTimeout> | null = null
+let chatUnreadChannel: RealtimeChannel | null = null
 
 const { activeRole, availableRoles, syncActiveRole, setActiveRole } = useActiveRole(baseRole)
 const shellRole = computed(() => activeRole.value ?? props.role)
@@ -176,6 +180,10 @@ const { colorMode, setMode, resolvedTheme } = useThemeMode()
 const { profile, ensureProfile } = useProfile()
 const memberCart = useMemberCart()
 const { siteSettings } = useSiteSettings()
+const supabase = useSupabaseClient()
+const { notifyMessage, prepareSound } = useChatNotifications()
+const { registerPushSubscription } = useChatPush()
+const chatUnreadCount = ref(0)
 
 const roleLabelMap: Record<AppRole, string> = {
   superadmin: 'Superadmin',
@@ -275,11 +283,143 @@ function roleIcon(role: AppRole) {
 }
 
 function navItemBadgeCount(item: { to: string }) {
-  if (shellRole.value !== 'member')
+  if (shellRole.value === 'member') {
+    if (item.to === '/member/checkout')
+      return Number(memberCart.items.value.length ?? 0)
+    if (item.to === '/member/chat')
+      return Number(chatUnreadCount.value ?? 0)
     return 0
-  if (item.to !== '/member/checkout')
-    return 0
-  return Number(memberCart.items.value.length ?? 0)
+  }
+
+  if (shellRole.value === 'staff' && item.to === '/staff/inbox')
+    return Number(chatUnreadCount.value ?? 0)
+  if (shellRole.value === 'admin' && item.to === '/admin/inbox')
+    return Number(chatUnreadCount.value ?? 0)
+  if (shellRole.value === 'superadmin' && item.to === '/superadmin/inbox')
+    return Number(chatUnreadCount.value ?? 0)
+
+  return 0
+}
+
+function navItemBadgeColor(item: { to: string }) {
+  if (
+    item.to === '/member/chat'
+    || item.to === '/staff/inbox'
+    || item.to === '/admin/inbox'
+    || item.to === '/superadmin/inbox'
+  )
+    return 'warning'
+
+  return 'success'
+}
+
+function canUseRealtimeUnread() {
+  if (!import.meta.client || typeof Notification === 'undefined')
+    return false
+  return Notification.permission === 'granted'
+}
+
+function isChatRoute(path: string) {
+  return path.startsWith('/member/chat')
+    || path.startsWith('/staff/inbox')
+    || path.startsWith('/admin/inbox')
+    || path.startsWith('/superadmin/inbox')
+}
+
+function trimNotificationText(message: string, max = 100) {
+  const text = String(message ?? '').trim()
+  if (text.length <= max)
+    return text
+  return `${text.slice(0, max)}...`
+}
+
+function notificationBodyFromMessage(message: string, hasAttachment: boolean) {
+  const trimmed = trimNotificationText(message, 100)
+  if (!hasAttachment)
+    return trimmed
+  if (trimmed && trimmed !== 'sent a file')
+    return `${trimmed} (received image)`
+  return 'received image'
+}
+
+function notificationTargetPath() {
+  if (shellRole.value === 'member')
+    return '/member/chat'
+  if (shellRole.value === 'staff')
+    return '/staff/inbox'
+  if (shellRole.value === 'superadmin')
+    return '/superadmin/inbox'
+  return '/admin/inbox'
+}
+
+async function refreshChatUnreadCount() {
+  if (!['member', 'staff', 'admin', 'superadmin'].includes(shellRole.value))
+    return
+  try {
+    const data = await $fetch<{ unread: number }>('/api/chat/unread-count')
+    chatUnreadCount.value = Math.max(0, Number(data?.unread ?? 0))
+  } catch {
+    // Sidebar unread badge is best-effort.
+  }
+}
+
+function scheduleUnreadRefresh() {
+  if (chatUnreadDebounceTimer)
+    clearTimeout(chatUnreadDebounceTimer)
+  chatUnreadDebounceTimer = setTimeout(() => {
+    refreshChatUnreadCount()
+  }, 120)
+}
+
+function clearUnreadWatchers() {
+  if (chatUnreadPollTimer) {
+    clearInterval(chatUnreadPollTimer)
+    chatUnreadPollTimer = null
+  }
+  if (chatUnreadDebounceTimer) {
+    clearTimeout(chatUnreadDebounceTimer)
+    chatUnreadDebounceTimer = null
+  }
+  chatUnreadChannel?.unsubscribe()
+  chatUnreadChannel = null
+}
+
+async function setupUnreadWatchers() {
+  clearUnreadWatchers()
+  await refreshChatUnreadCount()
+
+  if (canUseRealtimeUnread()) {
+    chatUnreadChannel = supabase
+      .channel(`app-shell-unread-${shellRole.value}-${String(profile.value?.id ?? '')}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_messages' }, async (payload: any) => {
+        scheduleUnreadRefresh()
+        if (String(payload?.eventType ?? '') !== 'INSERT')
+          return
+
+        const senderId = String(payload?.new?.sender_id ?? '')
+        const actorId = String(profile.value?.id ?? '')
+        if (!senderId || !actorId || senderId === actorId)
+          return
+
+        if (isChatRoute(route.path))
+          return
+
+        const incomingMessage = String(payload?.new?.message ?? '')
+        const hasAttachment = Boolean(payload?.new?.attachment_path)
+        const title = shellRole.value === 'member' ? 'Shop message' : 'New member message'
+        const body = notificationBodyFromMessage(incomingMessage, hasAttachment)
+        await notifyMessage(title, body, notificationTargetPath(), { forcePush: true })
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_threads' }, () => {
+        scheduleUnreadRefresh()
+      })
+      .subscribe()
+    return
+  }
+
+  chatUnreadPollTimer = setInterval(() => {
+    refreshChatUnreadCount()
+  }, 12000)
 }
 
 async function pingPresence(force = false) {
@@ -309,6 +449,7 @@ async function switchRole(role: AppRole) {
   try {
     const response = await $fetch<{ role: AppRole }>('/api/auth/active-role', { method: 'PUT', body: { role } })
     const resolved = setActiveRole(response.role)
+    await setupUnreadWatchers()
     if (resolved)
       await navigateTo(getRoleHome(resolved), { replace: true })
   }
@@ -331,6 +472,14 @@ watch(rail, (value) => {
     localStorage.setItem(railStorageKey, value ? '1' : '0')
 })
 
+watch(shellRole, () => {
+  setupUnreadWatchers()
+})
+
+watch(() => route.fullPath, () => {
+  refreshChatUnreadCount()
+})
+
 onMounted(async () => {
   const persistedRail = localStorage.getItem(railStorageKey)
   if (persistedRail === '1' || persistedRail === '0')
@@ -341,6 +490,10 @@ onMounted(async () => {
   syncActiveRole()
   if ((currentProfile?.role as AppRole) === 'member')
     await memberCart.ensureLoaded()
+  await setupUnreadWatchers()
+  await prepareSound()
+  if (import.meta.client && typeof Notification !== 'undefined' && Notification.permission === 'granted')
+    await registerPushSubscription(String(config.public.vapidPublicKey ?? '')).catch(() => false)
 
   await pingPresence(true)
   if (import.meta.client) {
@@ -360,10 +513,11 @@ onBeforeUnmount(() => {
     window.removeEventListener('focus', handlePresenceVisibility)
     document.removeEventListener('visibilitychange', handlePresenceVisibility)
   }
+  clearUnreadWatchers()
 })
 
 async function signOut() {
-  const supabase = useSupabaseClient()
+  clearUnreadWatchers()
   try {
     await $fetch('/api/chat/presence/offline', { method: 'POST' })
   } catch {

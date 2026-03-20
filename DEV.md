@@ -152,3 +152,7 @@ This document defines engineering standards for production-grade delivery in thi
   - `smtp_password` must be encrypted at rest with `CRYPTO_KEY` and never returned raw from API.
 - Storage explorer upload rule:
   - client-side compression is allowed only when output materially reduces size; keep original when compression gain is negligible.
+- Chat attachments rule:
+  - chat supports image attachments for both member and operator; message payload may be text-only, file-only (`sent a file`), or text+file.
+  - operator attachment selection uses Storage Explorer; member attachment uses local picker with preview before send.
+  - notification preview for attachment messages must be `sent a file` for consistency across inbox and push alerts.

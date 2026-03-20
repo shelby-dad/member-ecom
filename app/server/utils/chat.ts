@@ -60,3 +60,45 @@ export function canMemberSendWhileUnassigned(lastSenderId: string | null, member
     return true
   return String(lastSenderId) !== String(memberId)
 }
+
+export function normalizeChatAttachmentMessage(message: string, hasAttachment: boolean) {
+  const text = String(message ?? '').trim()
+  if (text)
+    return text
+  if (hasAttachment)
+    return 'sent a file'
+  return ''
+}
+
+export function normalizeMessagePreviewWithAttachment(message: string, hasAttachment: boolean) {
+  const normalized = normalizeChatAttachmentMessage(message, hasAttachment)
+  return normalized.slice(0, 160)
+}
+
+export function truncateNotificationMessage(message: string, max = 100) {
+  const text = String(message ?? '').trim()
+  if (text.length <= max)
+    return text
+  return `${text.slice(0, max)}...`
+}
+
+export function buildChatNotificationBody(message: string, hasAttachment: boolean) {
+  const text = String(message ?? '').trim()
+  const normalized = truncateNotificationMessage(text, 100)
+  if (!hasAttachment)
+    return normalized
+
+  if (normalized && normalized !== 'sent a file')
+    return `${normalized} (received image)`
+
+  return 'received image'
+}
+
+export function isValidImageAttachmentPath(path: string) {
+  const value = String(path ?? '').trim()
+  if (!value || value.length > 500)
+    return false
+  if (value.includes('..') || value.startsWith('/'))
+    return false
+  return /\.(png|jpe?g|webp)$/i.test(value)
+}

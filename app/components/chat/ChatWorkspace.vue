@@ -81,7 +81,16 @@
                         'chat-bubble--mine': message.sender_id === actorId,
                       }"
                     >
-                      <div class="chat-bubble-text">{{ message.message }}</div>
+                      <div v-if="message.attachment_path" class="chat-attachment-wrap mb-1">
+                        <button
+                          type="button"
+                          class="chat-attachment-btn"
+                          @click="openImageViewer(message.attachment_path)"
+                        >
+                          <v-img :src="attachmentUrl(message.attachment_path)" class="chat-attachment-image" cover @load="scrollToBottomDebounced" />
+                        </button>
+                      </div>
+                      <div v-if="displayMessageText(message)" class="chat-bubble-text">{{ displayMessageText(message) }}</div>
                     </div>
                     <div class="chat-meta-row">
                       <span class="chat-meta-text">{{ formatDateTime(message.created_at) }}</span>
@@ -109,26 +118,49 @@
               {{ sendError }}
             </v-alert>
 
+            <div v-if="attachmentPreviewUrl" class="chat-attach-preview-row mb-2">
+              <div class="chat-attach-preview-box">
+                <v-img :src="attachmentPreviewUrl" class="chat-attach-preview-image" cover />
+                <v-btn
+                  size="x-small"
+                  icon="mdi-close"
+                  variant="flat"
+                  color="error"
+                  class="chat-attach-remove-btn"
+                  @click="clearAttachmentSelection"
+                />
+              </div>
+            </div>
             <div class="chat-composer d-flex align-center ga-2 flex-wrap">
-              <v-textarea
-                v-model="draft"
-                placeholder="Message"
-                density="compact"
-                rows="1"
-                auto-grow
-                max-rows="4"
-                hide-details
-                variant="outlined"
-                class="flex-grow-1 chat-input"
-                :disabled="!selectedThread || selectedThread.status === 'banned'"
-                @keydown.enter.exact.prevent="sendMessage"
-              />
+              <div class="flex-grow-1 chat-input-wrap">
+                <v-btn
+                  class="chat-attach-btn"
+                  icon="mdi-paperclip"
+                  size="x-small"
+                  variant="text"
+                  :disabled="!selectedThread || selectedThread.status === 'banned'"
+                  @click="onAttachClick"
+                />
+                <v-textarea
+                  v-model="draft"
+                  placeholder="Message"
+                  density="compact"
+                  rows="1"
+                  auto-grow
+                  max-rows="4"
+                  hide-details
+                  variant="outlined"
+                  class="chat-input chat-input--with-attach"
+                  :disabled="!selectedThread || selectedThread.status === 'banned'"
+                  @keydown.enter.exact.prevent="sendMessage"
+                />
+              </div>
               <v-btn
                 color="primary"
                 icon="mdi-send"
-                :loading="sending"
+                :loading="sending || attachmentUploading"
                 class="chat-send-btn"
-                :disabled="!selectedThread || !draft.trim() || selectedThread.status === 'banned'"
+                :disabled="attachmentUploading || (!selectedThread || selectedThread.status === 'banned') || (!draft.trim() && !hasAttachmentSelected)"
                 @click="sendMessage"
               />
             </div>
@@ -392,7 +424,16 @@
                         'chat-bubble--mine': message.sender_id === actorId,
                       }"
                     >
-                      <div class="chat-bubble-text">{{ message.message }}</div>
+                      <div v-if="message.attachment_path" class="chat-attachment-wrap mb-1">
+                        <button
+                          type="button"
+                          class="chat-attachment-btn"
+                          @click="openImageViewer(message.attachment_path)"
+                        >
+                          <v-img :src="attachmentUrl(message.attachment_path)" class="chat-attachment-image" cover @load="scrollToBottomDebounced" />
+                        </button>
+                      </div>
+                      <div v-if="displayMessageText(message)" class="chat-bubble-text">{{ displayMessageText(message) }}</div>
                     </div>
                     <div class="chat-meta-row">
                       <span class="chat-meta-text">{{ formatDateTime(message.created_at) }}</span>
@@ -420,26 +461,49 @@
               {{ sendError }}
             </v-alert>
 
+            <div v-if="attachmentPreviewUrl" class="chat-attach-preview-row mb-2">
+              <div class="chat-attach-preview-box">
+                <v-img :src="attachmentPreviewUrl" class="chat-attach-preview-image" cover />
+                <v-btn
+                  size="x-small"
+                  icon="mdi-close"
+                  variant="flat"
+                  color="error"
+                  class="chat-attach-remove-btn"
+                  @click="clearAttachmentSelection"
+                />
+              </div>
+            </div>
             <div class="chat-composer d-flex align-center ga-2 flex-wrap">
-              <v-textarea
-                v-model="draft"
-                placeholder="Message"
-                density="compact"
-                rows="1"
-                auto-grow
-                max-rows="4"
-                hide-details
-                variant="outlined"
-                class="flex-grow-1 chat-input"
-                :disabled="isSendDisabled"
-                @keydown.enter.exact.prevent="sendMessage"
-              />
+              <div class="flex-grow-1 chat-input-wrap">
+                <v-btn
+                  class="chat-attach-btn"
+                  icon="mdi-paperclip"
+                  size="x-small"
+                  variant="text"
+                  :disabled="isSendDisabled"
+                  @click="onAttachClick"
+                />
+                <v-textarea
+                  v-model="draft"
+                  placeholder="Message"
+                  density="compact"
+                  rows="1"
+                  auto-grow
+                  max-rows="4"
+                  hide-details
+                  variant="outlined"
+                  class="chat-input chat-input--with-attach"
+                  :disabled="isSendDisabled"
+                  @keydown.enter.exact.prevent="sendMessage"
+                />
+              </div>
               <v-btn
                 color="primary"
                 icon="mdi-send"
-                :loading="sending"
+                :loading="sending || attachmentUploading"
                 class="chat-send-btn"
-                :disabled="isSendDisabled || !draft.trim()"
+                :disabled="attachmentUploading || isSendDisabled || (!draft.trim() && !hasAttachmentSelected)"
                 @click="sendMessage"
               />
             </div>
@@ -450,6 +514,39 @@
         </v-card-text>
       </v-card>
     </v-col>
+
+    <StorageImagePickerDialog
+      v-if="mode === 'operator'"
+      v-model="storagePickerOpen"
+      :bucket="'product-images'"
+      :selected-path="attachmentPath"
+      @selected="onOperatorAttachmentSelected"
+    />
+    <v-dialog v-model="imageViewerOpen" max-width="920">
+      <v-card>
+        <v-card-title class="d-flex align-center">
+          <span>Image Viewer</span>
+          <v-spacer />
+          <v-btn icon="mdi-close" variant="text" @click="imageViewerOpen = false" />
+        </v-card-title>
+        <v-card-text class="d-flex justify-center">
+          <v-img
+            v-if="imageViewerUrl"
+            :src="imageViewerUrl"
+            class="chat-image-viewer"
+            contain
+          />
+        </v-card-text>
+      </v-card>
+    </v-dialog>
+    <input
+      v-if="mode === 'member'"
+      ref="memberAttachmentInput"
+      type="file"
+      accept="image/jpeg,image/png,image/webp"
+      class="d-none"
+      @change="onMemberAttachmentPick"
+    >
   </v-row>
 </template>
 
@@ -461,6 +558,10 @@ type ChatMessage = {
   thread_id: string
   sender_id: string
   message: string
+  attachment_path?: string | null
+  attachment_name?: string | null
+  attachment_mime_type?: string | null
+  attachment_size_bytes?: number | null
   read_at: string | null
   created_at: string
   sender?: {
@@ -497,6 +598,17 @@ const hasLoadedMessagesOnce = ref(false)
 const isConversationSwitching = ref(false)
 const search = ref('')
 const draft = ref('')
+const memberAttachmentInput = ref<HTMLInputElement | null>(null)
+const memberAttachmentFile = ref<File | null>(null)
+const attachmentPreviewUrl = ref('')
+const attachmentPath = ref('')
+const attachmentName = ref('')
+const attachmentMimeType = ref('')
+const attachmentSizeBytes = ref<number | null>(null)
+const attachmentUploading = ref(false)
+const storagePickerOpen = ref(false)
+const imageViewerOpen = ref(false)
+const imageViewerUrl = ref('')
 const threads = ref<any[]>([])
 const threadListRef = ref<HTMLElement | null>(null)
 const messages = ref<ChatMessage[]>([])
@@ -572,6 +684,9 @@ const memberUnassignedLocked = computed(() =>
 const isSendDisabled = computed(() =>
   !selectedThread.value || selectedThread.value.status === 'banned' || memberUnassignedLocked.value,
 )
+const hasAttachmentSelected = computed(() =>
+  Boolean(memberAttachmentFile.value || attachmentPath.value),
+)
 const memberConversationStatusText = computed(() => {
   if (props.mode !== 'member' || !selectedThread.value)
     return ''
@@ -602,6 +717,115 @@ function avatarUrl(path?: string | null) {
     return value
   const base = String(config.public.supabaseUrl || '').trim()
   return base ? `${base}/storage/v1/object/public/product-images/${value}` : value
+}
+
+function attachmentUrl(path?: string | null) {
+  const value = String(path ?? '').trim()
+  if (!value)
+    return ''
+  if (value.startsWith('http://') || value.startsWith('https://'))
+    return value
+  const base = String(config.public.supabaseUrl || '').trim()
+  return base ? `${base}/storage/v1/object/public/product-images/${value}` : value
+}
+
+function displayMessageText(message: ChatMessage) {
+  if (message.attachment_path && String(message.message || '').trim() === 'sent a file')
+    return ''
+  return message.message
+}
+
+function resolveAttachmentName(path?: string | null) {
+  const value = String(path ?? '').trim()
+  if (!value)
+    return ''
+  const parts = value.split('/')
+  return parts[parts.length - 1] || 'image'
+}
+
+function clearAttachmentSelection() {
+  memberAttachmentFile.value = null
+  attachmentPath.value = ''
+  attachmentName.value = ''
+  attachmentMimeType.value = ''
+  attachmentSizeBytes.value = null
+  if (attachmentPreviewUrl.value && attachmentPreviewUrl.value.startsWith('blob:'))
+    URL.revokeObjectURL(attachmentPreviewUrl.value)
+  attachmentPreviewUrl.value = ''
+}
+
+function openImageViewer(path?: string | null) {
+  const url = attachmentUrl(path)
+  if (!url)
+    return
+  imageViewerUrl.value = url
+  imageViewerOpen.value = true
+}
+
+function onAttachClick() {
+  if (props.mode === 'operator') {
+    storagePickerOpen.value = true
+    return
+  }
+  memberAttachmentInput.value?.click()
+}
+
+function onOperatorAttachmentSelected(path: string) {
+  const value = String(path ?? '').trim()
+  if (!value)
+    return
+  attachmentPath.value = value
+  attachmentName.value = resolveAttachmentName(value)
+  const ext = attachmentName.value.split('.').pop()?.toLowerCase() || ''
+  attachmentMimeType.value = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg'
+  attachmentSizeBytes.value = null
+  attachmentPreviewUrl.value = attachmentUrl(value)
+  memberAttachmentFile.value = null
+}
+
+function onMemberAttachmentPick(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0] ?? null
+  input.value = ''
+  if (!file)
+    return
+  const allowed = ['image/jpeg', 'image/png', 'image/webp']
+  if (!allowed.includes(file.type) || file.size > 5 * 1024 * 1024) {
+    sendError.value = 'Only JPG, PNG, or WEBP up to 5MB is allowed.'
+    return
+  }
+  clearAttachmentSelection()
+  memberAttachmentFile.value = file
+  attachmentName.value = file.name
+  attachmentMimeType.value = file.type
+  attachmentSizeBytes.value = file.size
+  attachmentPreviewUrl.value = URL.createObjectURL(file)
+}
+
+async function uploadMemberAttachment() {
+  if (!memberAttachmentFile.value || !selectedThreadId.value)
+    return
+  const form = new FormData()
+  form.append('file', memberAttachmentFile.value)
+  attachmentUploading.value = true
+  try {
+    const data = await $fetch<{ path: string; name: string; mime_type: string; size_bytes: number }>(
+      `/api/chat/threads/${selectedThreadId.value}/attachments`,
+      {
+        method: 'POST',
+        body: form,
+      },
+    )
+    attachmentPath.value = String(data?.path ?? '')
+    attachmentName.value = String(data?.name ?? memberAttachmentFile.value.name)
+    attachmentMimeType.value = String(data?.mime_type ?? memberAttachmentFile.value.type)
+    attachmentSizeBytes.value = Number(data?.size_bytes ?? memberAttachmentFile.value.size)
+    attachmentPreviewUrl.value = attachmentUrl(attachmentPath.value)
+    memberAttachmentFile.value = null
+  }
+  finally {
+    attachmentUploading.value = false
+  }
 }
 
 function threadDisplayAvatar(thread: any) {
@@ -667,6 +891,31 @@ async function scrollToBottom() {
   messageContainerRef.value.scrollTop = messageContainerRef.value.scrollHeight
 }
 
+let scrollTimer: ReturnType<typeof setTimeout> | null = null
+function scrollToBottomDebounced() {
+  if (scrollTimer)
+    clearTimeout(scrollTimer)
+  scrollTimer = setTimeout(() => {
+    scrollToBottom()
+  }, 40)
+}
+
+function truncateNotificationText(message: string, max = 100) {
+  const text = String(message ?? '').trim()
+  if (text.length <= max)
+    return text
+  return `${text.slice(0, max)}...`
+}
+
+function formatNotificationBody(message: string, hasAttachment: boolean) {
+  const trimmed = truncateNotificationText(message, 100)
+  if (!hasAttachment)
+    return trimmed
+  if (trimmed && trimmed !== 'sent a file')
+    return `${trimmed} (received image)`
+  return 'received image'
+}
+
 function reconcilePendingMessages(serverItems: ChatMessage[]) {
   if (!pendingMessages.value.length)
     return
@@ -675,9 +924,10 @@ function reconcilePendingMessages(serverItems: ChatMessage[]) {
     const pendingAt = new Date(pending.created_at).getTime()
     return !serverOwn.some((item) => {
       const sameMessage = item.message.trim() === pending.message.trim()
+      const sameAttachment = String(item.attachment_path ?? '') === String(pending.attachment_path ?? '')
       const itemAt = new Date(item.created_at).getTime()
       const closeTimestamp = Math.abs(itemAt - pendingAt) <= 15000
-      return sameMessage && closeTimestamp
+      return sameMessage && sameAttachment && closeTimestamp
     })
   })
 }
@@ -830,6 +1080,7 @@ async function loadMessages() {
   if (!selectedThreadId.value) {
     messages.value = []
     pendingMessages.value = []
+    clearAttachmentSelection()
     return
   }
   messagesLoading.value = true
@@ -841,6 +1092,7 @@ async function loadMessages() {
     clearUnread(selectedThreadId.value)
     assignedTo.value = selectedThread.value?.assigned_to ?? null
     await scrollToBottom()
+    scrollToBottomDebounced()
   }
   finally {
     messagesLoading.value = false
@@ -852,6 +1104,7 @@ async function loadMessages() {
 async function selectThread(threadId: string) {
   isConversationSwitching.value = true
   clearUnread(threadId)
+  clearAttachmentSelection()
   selectedThreadId.value = threadId
 }
 
@@ -869,19 +1122,44 @@ async function startConversation() {
 }
 
 async function sendMessage() {
-  if (!selectedThreadId.value || !draft.value.trim())
+  if (!selectedThreadId.value)
+    return
+
+  const text = draft.value.trim()
+  if (!text && !hasAttachmentSelected.value)
     return
 
   sendError.value = ''
-  const text = draft.value.trim()
   draft.value = ''
   const tempId = `tmp-${Date.now()}-${Math.round(Math.random() * 100000)}`
+  let nextAttachmentPath = attachmentPath.value
+  let nextAttachmentName = attachmentName.value
+  let nextAttachmentMimeType = attachmentMimeType.value
+  let nextAttachmentSize = attachmentSizeBytes.value
+
+  if (memberAttachmentFile.value && !nextAttachmentPath) {
+    try {
+      await uploadMemberAttachment()
+      nextAttachmentPath = attachmentPath.value
+      nextAttachmentName = attachmentName.value
+      nextAttachmentMimeType = attachmentMimeType.value
+      nextAttachmentSize = attachmentSizeBytes.value
+    } catch (error) {
+      draft.value = text
+      sendError.value = String((error as any)?.data?.message ?? (error as any)?.message ?? 'Failed to upload attachment.')
+      return
+    }
+  }
 
   pendingMessages.value.push({
     id: tempId,
     thread_id: selectedThreadId.value,
     sender_id: actorId.value,
-    message: text,
+    message: text || 'sent a file',
+    attachment_path: nextAttachmentPath || null,
+    attachment_name: nextAttachmentName || null,
+    attachment_mime_type: nextAttachmentMimeType || null,
+    attachment_size_bytes: nextAttachmentSize ?? null,
     read_at: null,
     created_at: new Date().toISOString(),
     sender: {
@@ -903,7 +1181,13 @@ async function sendMessage() {
       response = await $fetch<{ item: ChatMessage }>(endpoint, {
         method: 'POST',
         credentials: 'include',
-        body: { message: text },
+        body: {
+          message: text,
+          attachment_path: nextAttachmentPath || null,
+          attachment_name: nextAttachmentName || null,
+          attachment_mime_type: nextAttachmentMimeType || null,
+          attachment_size_bytes: nextAttachmentSize ?? null,
+        },
       })
     } catch (error: any) {
       const status = Number(error?.statusCode ?? error?.status ?? error?.data?.statusCode ?? 0)
@@ -913,7 +1197,13 @@ async function sendMessage() {
           response = await $fetch<{ item: ChatMessage }>(endpoint, {
             method: 'POST',
             credentials: 'include',
-            body: { message: text },
+            body: {
+              message: text,
+              attachment_path: nextAttachmentPath || null,
+              attachment_name: nextAttachmentName || null,
+              attachment_mime_type: nextAttachmentMimeType || null,
+              attachment_size_bytes: nextAttachmentSize ?? null,
+            },
           })
         } catch {
           throw error
@@ -937,6 +1227,7 @@ async function sendMessage() {
       })
       await scrollToBottom()
     }
+    clearAttachmentSelection()
 
     if (props.mode === 'member' && selectedThread.value && !selectedThread.value.assigned_to) {
       selectedThread.value.member_can_send = false
@@ -1081,6 +1372,7 @@ async function handleIncomingNotification(payload: any) {
 
   const incomingThreadId = String(payload?.new?.thread_id ?? '')
   const incomingMessage = String(payload?.new?.message ?? '')
+  const incomingHasAttachment = Boolean(payload?.new?.attachment_path)
   const incomingCreatedAt = String(payload?.new?.created_at ?? '')
   if (props.mode === 'operator' && incomingThreadId) {
     if (selectedThreadId.value !== incomingThreadId)
@@ -1092,7 +1384,7 @@ async function handleIncomingNotification(payload: any) {
   }
 
   const title = props.mode === 'member' ? 'Shop message' : 'New member message'
-  const body = incomingMessage.slice(0, 120)
+  const body = formatNotificationBody(incomingMessage, incomingHasAttachment)
   const url = props.mode === 'member'
     ? '/member/chat'
     : (actorRole.value === 'staff' ? '/staff/inbox' : actorRole.value === 'superadmin' ? '/superadmin/inbox' : '/admin/inbox')
@@ -1149,7 +1441,7 @@ watch(selectedThreadId, () => {
 })
 
 watch(() => displayedMessages.value.length, () => {
-  scrollToBottom()
+  scrollToBottomDebounced()
 })
 
 onMounted(async () => {
@@ -1170,6 +1462,9 @@ onBeforeUnmount(() => {
     clearTimeout(refreshTimer)
   if (presenceClockTimer)
     clearInterval(presenceClockTimer)
+  if (scrollTimer)
+    clearTimeout(scrollTimer)
+  clearAttachmentSelection()
   channel?.unsubscribe()
 })
 </script>
@@ -1251,14 +1546,55 @@ onBeforeUnmount(() => {
   align-items: center;
 }
 
+.chat-input-wrap {
+  position: relative;
+  min-width: 0;
+}
+
+.chat-attach-btn {
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+}
+
 .chat-input :deep(.v-field) {
   min-height: 40px;
+}
+
+.chat-input--with-attach :deep(.v-field__input) {
+  padding-left: 34px;
 }
 
 .chat-send-btn {
   width: 40px;
   height: 40px;
   min-width: 40px;
+}
+
+.chat-attach-preview-box {
+  position: relative;
+  width: 100px;
+  height: 100px;
+  flex-shrink: 0;
+}
+
+.chat-attach-preview-image {
+  width: 100px;
+  height: 100px;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.chat-attach-remove-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  z-index: 2;
 }
 
 .chat-message-wrap {
@@ -1349,6 +1685,32 @@ onBeforeUnmount(() => {
 .chat-bubble-text {
   font-size: 13px;
   line-height: 1.25;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-attachment-wrap {
+  max-width: 220px;
+}
+
+.chat-attachment-btn {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.chat-attachment-image {
+  width: 64px;
+  height: 64px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+.chat-image-viewer {
+  width: 100%;
+  max-height: 72vh;
 }
 
 .chat-meta-row {

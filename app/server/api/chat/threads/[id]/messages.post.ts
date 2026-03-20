@@ -1,11 +1,39 @@
 import { z } from 'zod'
 import { getProfileOrThrow } from '~/server/utils/auth'
-import { assertThreadAccess, canMemberSendWhileUnassigned, getThreadOrThrow, normalizeMessagePreview } from '~/server/utils/chat'
+import {
+  assertThreadAccess,
+  canMemberSendWhileUnassigned,
+  buildChatNotificationBody,
+  getThreadOrThrow,
+  isValidImageAttachmentPath,
+  normalizeChatAttachmentMessage,
+  normalizeMessagePreviewWithAttachment,
+} from '~/server/utils/chat'
 import { sendChatPushToRecipients, type ChatPushRecipient } from '~/server/utils/chat-push'
 import { getServiceRoleClient } from '~/server/utils/supabase'
 
 const bodySchema = z.object({
-  message: z.string().trim().min(1).max(2000),
+  message: z.string().max(2000).optional().default(''),
+  attachment_path: z.string().trim().max(500).optional().nullable(),
+  attachment_name: z.string().trim().max(255).optional().nullable(),
+  attachment_mime_type: z.string().trim().max(100).optional().nullable(),
+  attachment_size_bytes: z.coerce.number().int().min(1).max(5 * 1024 * 1024).optional().nullable(),
+}).superRefine((input, ctx) => {
+  const message = String(input.message ?? '').trim()
+  const attachmentPath = String(input.attachment_path ?? '').trim()
+  if (!message && !attachmentPath) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Message or attachment is required.',
+    })
+  }
+  if (attachmentPath && !isValidImageAttachmentPath(attachmentPath)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Invalid attachment path.',
+      path: ['attachment_path'],
+    })
+  }
 })
 
 export default defineEventHandler(async (event) => {
@@ -49,7 +77,8 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  const message = parsed.data.message.trim()
+  const attachmentPath = String(parsed.data.attachment_path ?? '').trim() || null
+  const message = normalizeChatAttachmentMessage(parsed.data.message ?? '', Boolean(attachmentPath))
 
   const { data, error } = await supabase
     .from('chat_messages')
@@ -57,8 +86,12 @@ export default defineEventHandler(async (event) => {
       thread_id: threadId,
       sender_id: profile.id,
       message,
+      attachment_path: attachmentPath,
+      attachment_name: attachmentPath ? (String(parsed.data.attachment_name ?? '').trim() || null) : null,
+      attachment_mime_type: attachmentPath ? (String(parsed.data.attachment_mime_type ?? '').trim() || null) : null,
+      attachment_size_bytes: attachmentPath ? (parsed.data.attachment_size_bytes ?? null) : null,
     })
-    .select('id, thread_id, sender_id, message, read_at, created_at')
+    .select('id, thread_id, sender_id, message, read_at, created_at, attachment_path, attachment_name, attachment_mime_type, attachment_size_bytes')
     .single()
 
   if (error || !data)
@@ -66,7 +99,7 @@ export default defineEventHandler(async (event) => {
 
   const updatePayload: Record<string, unknown> = {
     last_message_at: data.created_at,
-    last_message_preview: normalizeMessagePreview(message),
+    last_message_preview: normalizeMessagePreviewWithAttachment(message, Boolean(attachmentPath)),
   }
   if ((profile.role === 'staff' || profile.role === 'admin' || profile.role === 'superadmin') && !thread.assigned_to)
     updatePayload.assigned_to = profile.id
@@ -116,7 +149,7 @@ export default defineEventHandler(async (event) => {
     await sendChatPushToRecipients(event, {
       recipients,
       title: profile.role === 'member' ? 'New member message' : 'Shop message',
-      body: message.slice(0, 160),
+      body: buildChatNotificationBody(message, Boolean(attachmentPath)),
     })
   }
 
