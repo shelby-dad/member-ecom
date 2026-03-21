@@ -11,6 +11,14 @@ node_modules
 .env.test.local
 .env.test.production
 .env.test.staging
+supabase/functions/.env.local
+supabase/functions/.env.development
+supabase/functions/.env.staging
+supabase/functions/.env.production
+functions/.env.local
+functions/.env.development
+functions/.env.staging
+functions/.env.production
 .DS_Store
 .pnpm-store
 dist

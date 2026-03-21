@@ -9,6 +9,6 @@ export default defineEventHandler(async (event) => {
   return {
     ...settings,
     smtp_password: '',
-    smtp_password_set: !!settings.smtp_password,
+    smtp_password_set: !!(settings.smtp_password_iv && settings.smtp_password_content),
   }
 })

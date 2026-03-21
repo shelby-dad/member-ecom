@@ -139,6 +139,9 @@ This document defines engineering standards for production-grade delivery in thi
 - CI test job now runs:
   - `pnpm test:coverage`
 - Coverage thresholds are enforced in `vitest.config.ts`.
+- Edge-function critical crypto path is regression-tested in:
+  - `app/tests/utils/secret-crypto.test.ts`
+  - includes app encrypt -> edge decrypt compatibility coverage.
 
 ## 14) Latest Implementation Notes (March 20, 2026)
 
@@ -149,10 +152,17 @@ This document defines engineering standards for production-grade delivery in thi
 - Free-plan compatibility rule:
   - if analytics returns a single aggregated point, UI switches to current-usage mode and shows guidance instead of pretending historical buckets exist.
 - SMTP settings security rule:
-  - `smtp_password` must be encrypted at rest with `CRYPTO_KEY` and never returned raw from API.
+  - SMTP secret must be encrypted at rest with `CRYPTO_KEY` and stored as two columns: `smtp_password_iv` and `smtp_password_content`.
+  - Legacy single-column `smtp_password` is removed from `app_settings`.
 - Storage explorer upload rule:
   - client-side compression is allowed only when output materially reduces size; keep original when compression gain is negligible.
 - Chat attachments rule:
   - chat supports image attachments for both member and operator; message payload may be text-only, file-only (`sent a file`), or text+file.
   - operator attachment selection uses Storage Explorer; member attachment uses local picker with preview before send.
   - notification preview for attachment messages must be `sent a file` for consistency across inbox and push alerts.
+- Supabase function layer rule:
+  - new edge functions must live under root `functions/` (standalone app) with `_shared` utilities for logger/env/crypto.
+  - use Node `22.14.0` from `functions/.nvmrc`; do not couple function tooling to main app package.
+  - deployment must be scriptable per environment using `functions/.env.<env>` files and `functions/scripts/deploy-function.sh`.
+  - `supabase/functions/` is a generated sync target for CLI only; do not edit it directly.
+  - internal trigger endpoints must not rely on public JWT; use explicit bearer secret validation.

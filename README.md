@@ -16,7 +16,7 @@ Single-tenant commerce system built with Nuxt 3, Vuetify 3, and Supabase (Auth, 
 2. Set at minimum in `.env`:
    - `SUPABASE_URL`
    - `SUPABASE_ANON_KEY`
-   - `CRYPTO_KEY` (required to encrypt/decrypt SMTP password at rest)
+   - `CRYPTO_KEY` (required to encrypt/decrypt SMTP secret at rest)
 3. Install and run:
    ```bash
    pnpm install
@@ -51,6 +51,25 @@ Never share keys across environments.
   pnpm clean:db
   ```
 
+## Supabase Functions (Microservice)
+
+- Function workspace: `functions/` (separate app, separate package)
+- Node version: `22.14.0` via `functions/.nvmrc`
+- Shared utilities: `functions/_shared`
+- First production function: `user-created-notify`
+  - Triggered on `auth.users` insert via DB trigger (`pg_net`)
+  - Sends email to active `superadmin` and `admin` users when SMTP settings are valid
+  - Synced into `supabase/functions` only for Supabase CLI deploy/serve
+
+Run from `functions/`:
+```bash
+cd functions
+nvm use
+pnpm deploy:user-created-notify:production
+```
+
+Trigger runtime config in DB uses `public.internal_edge_settings` (Supabase-safe).
+
 ## Scripts
 
 | Command | Description |
@@ -84,7 +103,7 @@ See [DEV.md](/Users/benz/dev/single-tenat-shop/DEV.md) for coding rules, archite
 - Authentication + role checks on protected pages and APIs.
 - Supabase RLS for data ownership isolation.
 - Service-role key only used server-side.
-- SMTP password is encrypted at rest using `CRYPTO_KEY` (AES-256-GCM).
+- SMTP secret is encrypted at rest using `CRYPTO_KEY` (AES-256-GCM) and stored in `smtp_password_iv` + `smtp_password_content`.
 - Input validation and defensive parsing in server routes.
 - Security headers:
   - `X-Frame-Options`
@@ -102,6 +121,8 @@ See [DEV.md](/Users/benz/dev/single-tenat-shop/DEV.md) for coding rules, archite
 - `app/assets/scss/`: global styles + theme tokens
 - `app/tests/`: unit tests
 - `supabase/migrations/`: schema and policy migrations
+- `functions/`: standalone edge microservice app (source of truth)
+- `supabase/functions/`: generated sync target for Supabase CLI
 - `scripts/`: operational scripts
 
 ## Recent Implementations (March 2026)

@@ -1,5 +1,5 @@
 import type { H3Event } from 'h3'
-import { decryptSecret } from '~/server/utils/secret-crypto'
+import { decryptSecretParts } from '~/server/utils/secret-crypto'
 import { getServiceRoleClient } from '~/server/utils/supabase'
 
 export type BarcodeType = 'code128' | 'ean13' | 'upca'
@@ -25,6 +25,8 @@ export interface AppSettingsRow {
   smtp_port: number | null
   smtp_user: string | null
   smtp_password: string | null
+  smtp_password_iv: string | null
+  smtp_password_content: string | null
   smtp_from_email: string | null
   smtp_from_name: string | null
   smtp_secure: boolean
@@ -51,6 +53,8 @@ export const defaultAppSettings: AppSettingsRow = {
   smtp_port: null,
   smtp_user: null,
   smtp_password: null,
+  smtp_password_iv: null,
+  smtp_password_content: null,
   smtp_from_email: null,
   smtp_from_name: null,
   smtp_secure: false,
@@ -81,8 +85,12 @@ export async function getAppSettings(event: H3Event): Promise<AppSettingsRow> {
     const initialized = { ...defaultAppSettings, ...inserted }
     return {
       ...initialized,
-      smtp_password: initialized.smtp_password
-        ? decryptSecret(String(initialized.smtp_password), cryptoKey)
+      smtp_password: initialized.smtp_password_iv && initialized.smtp_password_content
+        ? decryptSecretParts(
+            String(initialized.smtp_password_iv),
+            String(initialized.smtp_password_content),
+            cryptoKey,
+          )
         : null,
     }
   }
@@ -90,8 +98,12 @@ export async function getAppSettings(event: H3Event): Promise<AppSettingsRow> {
   const settings = { ...defaultAppSettings, ...data }
   return {
     ...settings,
-    smtp_password: settings.smtp_password
-      ? decryptSecret(String(settings.smtp_password), cryptoKey)
+    smtp_password: settings.smtp_password_iv && settings.smtp_password_content
+      ? decryptSecretParts(
+          String(settings.smtp_password_iv),
+          String(settings.smtp_password_content),
+          cryptoKey,
+        )
       : null,
   }
 }

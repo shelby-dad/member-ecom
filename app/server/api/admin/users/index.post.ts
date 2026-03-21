@@ -48,19 +48,8 @@ export default defineEventHandler(async (event) => {
         throw createError({ statusCode: 500, message: error.message })
       existingRows = (data ?? []) as Array<{ id: string; mobile_number: string | null }>
     }
-    if (!existingRows.some(row => isSamePhone(String(row.mobile_number ?? ''), mobileNumber))) {
-      const digitsPattern = `%${mobileNumber.replace(/\D/g, '').split('').join('%')}%`
-      if (digitsPattern !== '%%') {
-        const { data: fuzzyRows, error: fuzzyErr } = await supabase
-          .from('profiles')
-          .select('id, mobile_number')
-          .ilike('mobile_number', digitsPattern)
-          .limit(30)
-        if (fuzzyErr)
-          throw createError({ statusCode: 500, message: fuzzyErr.message })
-        existingRows = [...existingRows, ...((fuzzyRows ?? []) as Array<{ id: string; mobile_number: string | null }>)]
-      }
-    }
+    // Keep mobile uniqueness check fast for production user creation.
+    // The fuzzy ILIKE fallback is intentionally removed to avoid full-table scans.
     if (existingRows.some(row => isSamePhone(String(row.mobile_number ?? ''), mobileNumber))) {
       throw createError({
         statusCode: 400,

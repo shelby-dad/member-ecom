@@ -341,7 +341,9 @@
                   v-model="form.smtp_password"
                   label="SMTP password"
                   variant="outlined"
-                  type="password"
+                  :type="smtpPasswordVisible ? 'text' : 'password'"
+                  :append-inner-icon="smtpPasswordVisible ? 'mdi-eye-off-outline' : 'mdi-eye-outline'"
+                  @click:append-inner="smtpPasswordVisible = !smtpPasswordVisible"
                   :placeholder="smtpPasswordSet ? 'Password is already set. Leave blank to keep.' : ''"
                   class="mb-3"
                 />
@@ -396,6 +398,7 @@ const snack = ref(false)
 const snackMsg = ref('')
 const snackColor = ref<'success' | 'error'>('success')
 const smtpPasswordSet = ref(false)
+const smtpPasswordVisible = ref(false)
 const siteFaviconInput = ref<HTMLInputElement | null>(null)
 const platformOverview = ref<{
   configured: boolean
@@ -558,6 +561,7 @@ function assignForm(data: any) {
   form.smtp_port = Number(data?.smtp_port ?? 587)
   form.smtp_user = data?.smtp_user ?? ''
   form.smtp_password = ''
+  smtpPasswordVisible.value = false
   form.smtp_from_email = data?.smtp_from_email ?? ''
   form.smtp_from_name = data?.smtp_from_name ?? ''
   form.smtp_secure = !!data?.smtp_secure
