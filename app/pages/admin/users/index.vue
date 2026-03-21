@@ -19,6 +19,9 @@
           density="compact"
           hide-details
           clearable
+          autocomplete="off"
+          name="users-search"
+          :disabled="showCreateDialog || showEditDialog || showWalletDialog || showDeleteDialog"
           prepend-inner-icon="mdi-magnify"
           style="max-width: 340px"
         />
@@ -27,22 +30,15 @@
       <v-data-table-server
         v-model:page="page"
         v-model:items-per-page="pageSize"
+        v-model:sort-by="sortBy"
         :headers="headers"
         :items="users"
         :items-length="total"
+        :items-per-page-options="perPageOptions"
         :loading="loading"
         item-value="id"
         class="users-table"
       >
-        <template #header.full_name>
-          <div class="users-col-name">Name</div>
-        </template>
-        <template #header.email>
-          <div class="users-col-email">Email</div>
-        </template>
-        <template #header.mobile_number>
-          <div class="users-col-mobile">Mobile</div>
-        </template>
         <template #header.created_at>
           <div class="users-col-created">Created</div>
         </template>
@@ -108,6 +104,16 @@
               icon="mdi-wallet"
               :title="'Update wallet'"
               @click="openWalletDialog(item)"
+            />
+            <v-btn
+              v-if="actorRole === 'superadmin' && item.id !== actorId"
+              size="x-small"
+              variant="text"
+              icon="mdi-trash-can-outline"
+              color="error"
+              :title="'Delete user'"
+              :loading="deletingUserId === item.id"
+              @click="openDeleteDialog(item)"
             />
           </div>
         </template>
@@ -189,6 +195,9 @@
       <v-card>
         <v-card-title>Create Account</v-card-title>
         <v-card-text>
+          <form autocomplete="off" @submit.prevent>
+            <input type="text" name="username" autocomplete="username" style="display:none">
+            <input type="password" name="password" autocomplete="new-password" style="display:none">
           <div class="user-avatar-picker mb-4">
             <v-avatar size="84" color="grey-lighten-3" class="mb-2">
               <v-img v-if="form.avatar_url" :src="storageImageUrl(form.avatar_url)" cover />
@@ -211,16 +220,16 @@
           </div>
           <v-row class="mt-1">
             <v-col cols="12" md="6">
-              <v-text-field v-model="form.full_name" label="Full name" variant="outlined" density="compact" hide-details="auto" />
+              <v-text-field v-model="form.full_name" label="Full name" variant="outlined" density="compact" hide-details="auto" autocomplete="off" name="create-user-full-name" />
             </v-col>
             <v-col cols="12" md="6">
-              <v-text-field v-model="form.email" label="Email" type="email" variant="outlined" density="compact" hide-details="auto" />
+              <v-text-field v-model="form.email" label="Email" type="email" variant="outlined" density="compact" hide-details="auto" autocomplete="new-email" name="create-user-email" />
             </v-col>
             <v-col cols="12" md="6">
-              <v-text-field v-model="form.mobile_number" label="Mobile number (optional)" variant="outlined" density="compact" hide-details="auto" />
+              <v-text-field v-model="form.mobile_number" label="Mobile number (optional)" variant="outlined" density="compact" hide-details="auto" autocomplete="off" name="create-user-mobile" />
             </v-col>
             <v-col cols="12" md="6">
-              <v-text-field v-model="form.password" label="Password" type="password" variant="outlined" density="compact" hint="Min 6 characters" hide-details="auto" />
+              <v-text-field v-model="form.password" label="Password" type="password" variant="outlined" density="compact" hint="Min 6 characters" hide-details="auto" autocomplete="new-password" name="create-user-password" />
             </v-col>
             <v-col cols="12" md="6">
               <v-select v-model="form.role" :items="roleOptions" label="Role" variant="outlined" density="compact" hide-details="auto" />
@@ -237,6 +246,7 @@
               />
             </v-col>
           </v-row>
+          </form>
         </v-card-text>
         <v-card-actions>
           <v-spacer />
@@ -279,6 +289,30 @@
       </v-card>
     </v-dialog>
 
+    <v-dialog v-model="showDeleteDialog" max-width="480">
+      <v-card>
+        <v-card-title>Delete user</v-card-title>
+        <v-card-text>
+          This will permanently remove the user and all related data.
+          <div class="mt-2">
+            <strong>{{ deleteTarget?.email }}</strong>
+          </div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" :disabled="Boolean(deletingUserId)" @click="showDeleteDialog = false">Cancel</v-btn>
+          <v-btn
+            color="error"
+            :loading="Boolean(deletingUserId)"
+            :disabled="!deleteTarget"
+            @click="confirmDeleteUser"
+          >
+            Delete
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <v-snackbar v-model="snackbar.show" :color="snackbar.color">
       {{ snackbar.message }}
     </v-snackbar>
@@ -308,9 +342,9 @@ interface UserRow {
 }
 
 const headers = [
-  { title: 'Name', key: 'full_name' },
-  { title: 'Email', key: 'email' },
-  { title: 'Mobile', key: 'mobile_number' },
+  { title: 'Name', key: 'full_name', sortable: true },
+  { title: 'Email', key: 'email', sortable: true },
+  { title: 'Mobile', key: 'mobile_number', sortable: true },
   { title: 'Role', key: 'role' },
   { title: 'Status', key: 'status' },
   { title: 'Wallet', key: 'wallet_balance' },
@@ -322,6 +356,8 @@ const search = ref('')
 const config = useRuntimeConfig()
 const page = ref(1)
 const pageSize = ref(10)
+const perPageOptions = [10, 20, 50, 100]
+const sortBy = ref<Array<{ key: string, order: 'asc' | 'desc' }>>([{ key: 'created_at', order: 'desc' }])
 const total = ref(0)
 const loading = ref(false)
 const users = ref<UserRow[]>([])
@@ -366,6 +402,9 @@ const showWalletDialog = ref(false)
 const walletSaving = ref(false)
 const walletTarget = ref<UserRow | null>(null)
 const walletForm = reactive({ amount: 0 })
+const showDeleteDialog = ref(false)
+const deleteTarget = ref<UserRow | null>(null)
+const deletingUserId = ref<string | null>(null)
 const snackbar = reactive({ show: false, message: '', color: 'success' })
 const showAvatarPicker = ref(false)
 const avatarPickerMode = ref<'create' | 'edit'>('create')
@@ -440,6 +479,8 @@ async function loadUsers() {
         search: search.value,
         page: page.value,
         pageSize: pageSize.value,
+        sortKey: String(sortBy.value[0]?.key ?? 'created_at'),
+        sortOrder: sortBy.value[0]?.order === 'asc' ? 'asc' : 'desc',
       },
     })
     users.value = data.items ?? []
@@ -569,6 +610,17 @@ function openWalletDialog(user: UserRow) {
   showWalletDialog.value = true
 }
 
+function openDeleteDialog(user: UserRow) {
+  if (actorRole.value !== 'superadmin')
+    return
+  if (user.id === actorId.value) {
+    showToast('You cannot delete your own account.', 'error')
+    return
+  }
+  deleteTarget.value = user
+  showDeleteDialog.value = true
+}
+
 async function saveWallet() {
   if (!walletTarget.value) return
   if (Number(walletForm.amount || 0) <= 0) {
@@ -593,9 +645,34 @@ async function saveWallet() {
   }
 }
 
+async function confirmDeleteUser() {
+  if (!deleteTarget.value || actorRole.value !== 'superadmin')
+    return
+  deletingUserId.value = deleteTarget.value.id
+  try {
+    await $fetch(`/api/admin/users/${deleteTarget.value.id}`, { method: 'DELETE' })
+    showDeleteDialog.value = false
+    showToast('User deleted.', 'success')
+    if (users.value.length <= 1 && page.value > 1)
+      page.value -= 1
+    await loadUsers()
+  }
+  catch (e: any) {
+    showToast(e?.data?.message ?? e?.message ?? 'Failed to delete user.', 'error')
+  }
+  finally {
+    deletingUserId.value = null
+  }
+}
+
 watch([page, pageSize], () => {
   loadUsers()
 })
+
+watch(sortBy, () => {
+  page.value = 1
+  loadUsers()
+}, { deep: true })
 
 watch(search, () => {
   page.value = 1

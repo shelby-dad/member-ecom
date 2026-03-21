@@ -19,6 +19,7 @@ describe('useAppNavigation model', () => {
       '/admin/product-metadata',
       '/admin/promotions',
       '/admin/orders',
+      '/admin/inbox',
       '/admin/payment-methods',
     ])
   })
@@ -27,5 +28,10 @@ describe('useAppNavigation model', () => {
     expect(getNavigationForRole('superadmin')[0].to).toBe('/superadmin')
     expect(getNavigationForRole('staff')[0].to).toBe('/staff')
     expect(getNavigationForRole('member')[0].to).toBe('/member')
+  })
+
+  it('includes email templates navigation for superadmin', () => {
+    const items = getNavigationForRole('superadmin')
+    expect(items.some(item => item.to === '/superadmin/email-templates')).toBe(true)
   })
 })

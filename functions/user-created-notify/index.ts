@@ -12,6 +12,13 @@ interface UserCreatedPayload {
   created_at?: string | null
 }
 
+interface EmailTemplateRow {
+  template_key: string
+  subject: string
+  body_html: string
+  is_active: boolean
+}
+
 const FUNCTION_NAME = 'user-created-notify'
 
 function elapsedMs(startedAt: number) {
@@ -87,6 +94,89 @@ function json(status: number, body: Record<string, unknown>) {
   })
 }
 
+function formatJoinedAt(value: string | null | undefined) {
+  const date = value ? new Date(value) : new Date()
+  if (Number.isNaN(date.getTime()))
+    return '-'
+  const month = date.toLocaleString('en-US', { month: 'short' })
+  const day = String(date.getDate()).padStart(2, '0')
+  const year = String(date.getFullYear())
+  return `${month} ${day} ${year}`
+}
+
+function storagePublicUrl(baseUrl: string, path: string | null | undefined) {
+  const value = String(path ?? '').trim()
+  if (!value)
+    return ''
+  if (value.startsWith('http://') || value.startsWith('https://'))
+    return value
+  return `${baseUrl.replace(/\/$/, '')}/storage/v1/object/public/product-images/${value}`
+}
+
+function wrapEmailHtml(contentHtml: string, data: {
+  siteName: string
+  siteLogoUrl: string
+  shopEmail: string
+  shopMobile: string
+  shopAddress: string
+}) {
+  const logoBlock = data.siteLogoUrl
+    ? `<img src="${data.siteLogoUrl}" alt="${data.siteName}" style="max-height:64px;width:auto;display:block;" />`
+    : `<div style="font-size:20px;font-weight:700;color:#0f172a;">${data.siteName}</div>`
+
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${data.siteName}</title>
+  </head>
+  <body style="margin:0;padding:0;background:#f8fafc;font-family:Arial,'Helvetica Neue',Helvetica,sans-serif;color:#0f172a;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f8fafc;padding:24px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:640px;background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">
+            <tr>
+              <td style="padding:18px 20px;border-bottom:1px solid #e2e8f0;text-align:center;">
+                ${logoBlock}
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:20px;">
+                ${contentHtml}
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:14px 20px;border-top:1px solid #e2e8f0;background:#f8fafc;font-size:13px;line-height:1.5;color:#475569;">
+                <div><strong>Email:</strong> ${data.shopEmail || '-'}</div>
+                <div><strong>Mobile:</strong> ${data.shopMobile || '-'}</div>
+                <div><strong>Address:</strong> ${data.shopAddress || '-'}</div>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`
+}
+
+function renderTemplate(input: string, variables: Record<string, string>) {
+  return String(input ?? '').replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, key: string) => {
+    const next = variables[key]
+    return next === undefined || next === null ? '' : String(next)
+  })
+}
+
+function toPlainText(html: string) {
+  return String(html ?? '')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 function isAuthorized(req: Request) {
   const expectedToken = requireEnv('INTERNAL_EDGE_TRIGGER_TOKEN')
   const raw = req.headers.get('authorization') || req.headers.get('Authorization') || ''
@@ -136,9 +226,37 @@ Deno.serve(async (req: Request) => {
       auth: { persistSession: false },
     })
 
+    const { data: templateRow, error: templateErr } = await supabase
+      .from('email_templates')
+      .select('template_key, subject, body_html, is_active')
+      .eq('template_key', 'user_add_notification')
+      .maybeSingle()
+
+    if (templateErr) {
+      logEvent('error', 'template.load_failed', requestId, startedAt, {
+        error: templateErr.message,
+      })
+      return json(500, { error: 'Failed to load email template' })
+    }
+
+    if (!templateRow) {
+      logEvent('warn', 'template.missing', requestId, startedAt, {
+        templateKey: 'user_add_notification',
+      })
+      return json(202, { ok: true, skipped: true, reason: 'template_missing' })
+    }
+
+    const template = templateRow as EmailTemplateRow
+    if (!template.is_active) {
+      logEvent('info', 'template.inactive_skip', requestId, startedAt, {
+        templateKey: template.template_key,
+      })
+      return json(202, { ok: true, skipped: true, reason: 'template_inactive' })
+    }
+
     const { data: appSettings, error: settingsErr } = await supabase
       .from('app_settings')
-      .select('smtp_host, smtp_port, smtp_user, smtp_password_iv, smtp_password_content, smtp_from_email, smtp_from_name, smtp_secure, site_name')
+      .select('smtp_host, smtp_port, smtp_user, smtp_password_iv, smtp_password_content, smtp_from_email, smtp_from_name, smtp_secure, site_name, shop_logo, shop_email, mobile_number, shop_address')
       .eq('id', true)
       .maybeSingle()
 
@@ -158,6 +276,11 @@ Deno.serve(async (req: Request) => {
     const smtpFromName = String((appSettings as any)?.smtp_from_name ?? '').trim() || 'Tenant Shop'
     const smtpSecure = Boolean((appSettings as any)?.smtp_secure)
     const siteName = String((appSettings as any)?.site_name ?? '').trim() || 'Tenant Shop'
+    const shopLogoPath = String((appSettings as any)?.shop_logo ?? '').trim()
+    const shopEmail = String((appSettings as any)?.shop_email ?? '').trim() || smtpFromEmail || '-'
+    const shopMobile = String((appSettings as any)?.mobile_number ?? '').trim() || '-'
+    const shopAddress = String((appSettings as any)?.shop_address ?? '').trim() || '-'
+    const siteLogoUrl = storagePublicUrl(supabaseUrl, shopLogoPath)
     logEvent('info', 'smtp.config_loaded', requestId, startedAt, {
       hasHost: Boolean(smtpHost),
       host: maskHost(smtpHost),
@@ -233,15 +356,44 @@ Deno.serve(async (req: Request) => {
 
     const createdAt = payload?.created_at ? new Date(payload.created_at).toISOString() : new Date().toISOString()
     const dashboardUrl = appBaseUrl ? `${appBaseUrl.replace(/\/$/, '')}/admin/users` : ''
-    const subject = `[${siteName}] New user created`
-    const text = [
-      `A new user has been created in ${siteName}.`,
-      '',
-      `User ID: ${userId}`,
-      `Email: ${userEmail ?? '-'}`,
-      `Created At: ${createdAt}`,
-      dashboardUrl ? `Users Dashboard: ${dashboardUrl}` : '',
-    ].filter(Boolean).join('\n')
+    let userPhone = '-'
+    let userFullName = '-'
+    let profileEmail = ''
+    const { data: profileRow, error: profileErr } = await supabase
+      .from('profiles')
+      .select('full_name, mobile_number, email')
+      .eq('id', userId)
+      .maybeSingle()
+    if (profileErr) {
+      logEvent('warn', 'profile.lookup_failed', requestId, startedAt, {
+        error: profileErr.message,
+      })
+    } else {
+      userPhone = String((profileRow as any)?.mobile_number ?? '').trim() || '-'
+      userFullName = String((profileRow as any)?.full_name ?? '').trim() || '-'
+      profileEmail = String((profileRow as any)?.email ?? '').trim()
+    }
+
+    const variableMap = {
+      site_name: siteName,
+      user_id: userId,
+      user_full_name: userFullName,
+      user_email: profileEmail || userEmail || '-',
+      user_phone: userPhone,
+      joined_at: formatJoinedAt(payload?.created_at),
+      user_created_at: createdAt,
+      dashboard_url: dashboardUrl,
+    }
+    const subject = renderTemplate(template.subject, variableMap)
+    const bodyHtml = renderTemplate(template.body_html, variableMap)
+    const html = wrapEmailHtml(bodyHtml, {
+      siteName,
+      siteLogoUrl,
+      shopEmail,
+      shopMobile,
+      shopAddress,
+    })
+    const text = toPlainText(`${bodyHtml}\nEmail: ${shopEmail}\nMobile: ${shopMobile}\nAddress: ${shopAddress}`)
 
     try {
       logEvent('info', 'smtp.send_attempt', requestId, startedAt, {
@@ -249,12 +401,14 @@ Deno.serve(async (req: Request) => {
         smtpHost: maskHost(smtpHost),
         smtpPort: smtpPort,
         smtpSecure,
+        templateKey: template.template_key,
       })
       await transport.sendMail({
         from: smtpFromName ? `${smtpFromName} <${smtpFromEmail}>` : smtpFromEmail,
         to: smtpFromEmail,
         bcc: emails,
         subject,
+        html,
         text,
       })
     } catch (smtpError: any) {

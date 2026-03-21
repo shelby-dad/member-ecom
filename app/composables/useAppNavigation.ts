@@ -19,6 +19,7 @@ const NAVIGATION_BY_ROLE: Record<AppRole, AppNavItem[]> = {
     { label: 'Promotions', to: '/admin/promotions', icon: 'mdi-sale-outline', description: 'Create promo rules and discount campaigns.' },
     { label: 'Orders', to: '/admin/orders', icon: 'mdi-receipt-text-outline', description: 'Track orders, update status, and review payments.' },
     { label: 'Inbox', to: '/superadmin/inbox', icon: 'mdi-message-text-outline', description: 'Handle member conversations and assignment workflow.' },
+    { label: 'Email Templates', to: '/superadmin/email-templates', icon: 'mdi-email-edit-outline', description: 'Manage email subjects and bodies used by edge notifications.' },
     { label: 'Payment Methods', to: '/admin/payment-methods', icon: 'mdi-credit-card-outline', description: 'Manage bank transfer and default payment methods.' },
   ],
   admin: [

@@ -13,6 +13,7 @@ This folder is the dedicated edge microservice workspace for tenant-shop.
 
 - TypeScript edge function
 - Receives secure internal trigger payload
+- Loads system email template (`user_add_notification`) and respects active toggle
 - Loads `app_settings` SMTP fields
 - Decrypts SMTP secret from `smtp_password_iv` and `smtp_password_content` with `CRYPTO_KEY`
 - Sends email to all active `superadmin` and `admin` recipients
@@ -27,6 +28,18 @@ cp .env.production.example .env.production
 # fill values
 pnpm deploy:user-created-notify:production
 ```
+## Deploy Behavior
+
+The deploy script is single-flow and deterministic:
+
+1. Read deploy target from `PROJECT_ID` (env file or linked project fallback)
+2. Validate required values exist in `.env.<env>`
+3. Upsert secrets from `.env.<env>` key-by-key (unset then set)
+4. Ignore keys that start with `SUPABASE_`
+5. Deploy function
+
+This guarantees deployed secrets always match current codebase env file for that environment.
+It also guarantees `updated_at` changes for managed keys after each deploy.
 
 Function-owned secrets to define in `functions/.env.<env>`:
 
@@ -35,6 +48,10 @@ Function-owned secrets to define in `functions/.env.<env>`:
 - `APP_BASE_URL` (optional)
 - `SMTP_TIMEOUT_MS` (optional)
 
+Deploy target config to define in `functions/.env.<env>`:
+
+- `PROJECT_ID` (recommended)
+
 Notes:
 
 - `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are runtime-provided in deployed Supabase Edge Functions.
@@ -42,9 +59,10 @@ Notes:
 
 Project ref resolution order for deploy:
 
-1. shell env: `SUPABASE_PROJECT_REF`
-2. env file key: `SUPABASE_PROJECT_REF=...`
-3. derived from `SUPABASE_URL` when present (e.g. `https://abcxyz.supabase.co` => `abcxyz`)
+1. shell env: `PROJECT_ID`
+2. env file key: `PROJECT_ID=...`
+3. shell/env fallback: `SUPABASE_PROJECT_REF`
+4. linked project ref from `supabase/.temp/project-ref`
 
 ## Local Serve
 
@@ -71,8 +89,9 @@ pnpm serve
 
 ## Deploy Notes
 
-- `functions/scripts/deploy-function.sh` now filters out `SUPABASE_*` connection vars from secrets upload.
-- This avoids noisy CLI warnings and keeps only runtime secrets in Edge Functions.
+- `functions/scripts/deploy-function.sh` sets/updates secrets directly from `.env.<env>` each deploy.
+- Keys starting with `SUPABASE_` are ignored.
+- Deploy target key (`PROJECT_ID`) is for routing only and is not uploaded as function secret.
 
 ## Trigger Wiring
 

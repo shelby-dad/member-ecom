@@ -166,3 +166,7 @@ This document defines engineering standards for production-grade delivery in thi
   - deployment must be scriptable per environment using `functions/.env.<env>` files and `functions/scripts/deploy-function.sh`.
   - `supabase/functions/` is a generated sync target for CLI only; do not edit it directly.
   - internal trigger endpoints must not rely on public JWT; use explicit bearer secret validation.
+- Email template orchestration rule:
+  - `email_templates` table is system-managed and non-deletable.
+  - edge functions must load template first; when inactive, skip outbound email.
+  - variable rendering uses explicit `{{variable_name}}` placeholders.

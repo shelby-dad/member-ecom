@@ -6,6 +6,8 @@ const querySchema = z.object({
   search: z.string().optional().default(''),
   page: z.coerce.number().int().min(1).optional().default(1),
   pageSize: z.coerce.number().int().min(1).max(100).optional().default(10),
+  sortKey: z.enum(['full_name', 'email', 'mobile_number', 'role', 'status', 'wallet_balance', 'created_at']).optional().default('created_at'),
+  sortOrder: z.enum(['asc', 'desc']).optional().default('desc'),
 })
 
 export default defineEventHandler(async (event) => {
@@ -16,7 +18,7 @@ export default defineEventHandler(async (event) => {
   if (!parsed.success)
     throw createError({ statusCode: 400, message: parsed.error.message })
 
-  const { search, page, pageSize } = parsed.data
+  const { search, page, pageSize, sortKey, sortOrder } = parsed.data
   const from = (page - 1) * pageSize
   const to = from + pageSize - 1
 
@@ -24,6 +26,7 @@ export default defineEventHandler(async (event) => {
   let query = supabase
     .from('profiles')
     .select('id, email, full_name, avatar_url, mobile_number, is_mobile_logged_in, role, status, wallet_balance, created_at', { count: 'exact' })
+    .order(sortKey, { ascending: sortOrder === 'asc', nullsFirst: false })
     .order('created_at', { ascending: false })
 
   if (search.trim()) {

@@ -19,11 +19,12 @@ Edge function that receives an internal trigger payload when a new auth user is 
 
 ## Behavior
 
-1. Reads `app_settings` SMTP fields.
-2. Decrypts SMTP secret from `smtp_password_iv` and `smtp_password_content` with `CRYPTO_KEY`.
-3. Finds active `superadmin` and `admin` emails.
-4. Sends notification email using SMTP transport.
-5. Writes structured logs with request id and recipient count.
+1. Loads `email_templates.user_add_notification` as the first orchestration layer.
+2. Skips email sending when template is inactive.
+3. Reads `app_settings` SMTP fields.
+4. Decrypts SMTP secret from `smtp_password_iv` and `smtp_password_content` with `CRYPTO_KEY`.
+5. Renders template variables and sends email to active `superadmin` and `admin` recipients.
+6. Writes structured logs with request id and recipient count.
 
 ## Operational Note
 
