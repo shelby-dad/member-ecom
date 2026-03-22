@@ -34,17 +34,25 @@ Never share keys across environments.
 
 ## Database
 
-- Push migrations:
+- Apply migrations:
   ```bash
-  pnpm db:push
+  pnpm db:migrate
   ```
-- Generate single SQL schema:
+- Seed default users:
+  ```bash
+  pnpm db:seed
+  ```
+- Generate full schema snapshot:
   ```bash
   pnpm db:full-schema
   ```
-- Seed base users:
+- One-shot setup (migrate + seed):
   ```bash
-  pnpm db:seed
+  pnpm db:setup
+  ```
+- One-shot setup with schema snapshot (migrate + seed + full schema):
+  ```bash
+  pnpm db:setup:full
   ```
 - Clean non-user/role business data:
   ```bash
@@ -72,19 +80,51 @@ Body: { "limit": 25 }
 
 | Command | Description |
 |---|---|
-| `pnpm dev` | Start dev server |
 | `pnpm build` | Production build |
+| `pnpm clean:conversations` | Remove chat conversation data safely |
+| `pnpm clean:db` | Purge business data safely |
+| `pnpm clean:members` | Hard-delete member users and related data |
+| `pnpm clean:notification` | Remove all notifications from DB (`-- --yes` to confirm) |
+| `pnpm db:full-schema` | Generate SQL schema file |
+| `pnpm db:migrate` | Alias for `db:push` |
+| `pnpm db:migration:repair:applied` | Mark migration version(s) as applied in remote history |
+| `pnpm db:migration:repair:reverted` | Mark migration version(s) as reverted in remote history |
+| `pnpm db:migrations:list` | List local and remote migration status |
+| `pnpm db:pull` | Pull remote schema into local migration snapshot |
 | `pnpm preview` | Preview production build |
+| `pnpm db:push` | Apply Supabase migrations |
+| `pnpm db:seed` | Seed default users |
+| `pnpm db:setup` | Run migrate + seed |
+| `pnpm db:setup:full` | Run migrate + seed + full schema snapshot |
+| `pnpm dev` | Start dev server |
+| `pnpm generate` | Generate static output |
 | `pnpm lint` | Run ESLint |
-| `pnpm typecheck` | Run Nuxt typecheck |
+| `pnpm postinstall` | Run Nuxt prepare hook |
 | `pnpm test` | Run unit tests |
 | `pnpm test:coverage` | Run unit tests with coverage report |
-| `pnpm db:push` | Apply Supabase migrations |
-| `pnpm db:full-schema` | Generate SQL schema file |
-| `pnpm db:seed` | Seed default users |
-| `pnpm clean:db` | Purge business data safely |
-| `pnpm clean:conversations` | Remove chat conversation data safely |
-| `pnpm clean:members` | Hard-delete member users and related data |
+| `pnpm test:e2e` | Run Playwright e2e suite |
+| `pnpm test:e2e:ui` | Run Playwright in UI mode |
+| `pnpm test:watch` | Run Vitest in watch mode |
+| `pnpm typecheck` | Run Nuxt typecheck |
+
+## Technology Docs Map
+
+| Technology | Official Docs | Used For | Where In This Project |
+|---|---|---|---|
+| Nuxt 3 | https://nuxt.com/docs | App framework, SSR, routing, server APIs | `app/pages/*`, `app/layouts/*`, `app/server/api/*`, `nuxt.config.ts` |
+| Vue 3 | https://vuejs.org/guide/introduction.html | Component/reactivity layer | `app/components/*`, `app/composables/*` |
+| Vuetify 3 | https://vuetifyjs.com/en/getting-started/installation/ | UI components and responsive layout | `app/components/*`, `app/pages/*`, `app/plugins/vuetify.ts` |
+| Supabase | https://supabase.com/docs | Auth, Postgres, Storage, Realtime | `app/server/utils/supabase.ts`, `supabase/migrations/*`, `app/plugins/*supabase*` |
+| Supabase JS | https://supabase.com/docs/reference/javascript/introduction | Client/server DB and auth calls | `app/server/api/*`, `app/composables/*` |
+| Zod | https://zod.dev/ | Runtime request validation | `app/server/api/**/*.ts` |
+| TipTap | https://tiptap.dev/docs/editor/getting-started/overview | Rich editor for email templates/content editing | `app/components/EmailTemplateEditor.vue`, `app/components/RichTextField.vue` |
+| Pino | https://getpino.io/#/ | Structured server logging | `app/server/utils/logger.ts`, `app/server/middleware/00.request-logger.ts` |
+| web-push | https://github.com/web-push-libs/web-push | Browser push notification delivery | `app/server/utils/chat-push.ts`, `app/server/services/notifications/*` |
+| Vitest | https://vitest.dev/guide/ | Unit testing | `app/tests/**/*.test.ts`, `vitest.config.ts` |
+| Playwright | https://playwright.dev/docs/intro | End-to-end testing | `app/e2e/*.spec.ts`, `playwright.config.ts` |
+| XLSX | https://docs.sheetjs.com/ | Export order XLS files | `app/server/api/admin/orders/export-xls.post.ts` |
+| ZXing | https://github.com/zxing-js/library | Barcode scanning in POS | `app/pages/staff/pos/index.vue`, barcode scanner flows |
+| JsBarcode | https://github.com/lindell/JsBarcode | Barcode image rendering | `app/components/BarcodeImage.vue` |
 
 ## Quality And Enterprise Baseline
 

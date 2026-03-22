@@ -75,6 +75,16 @@ This document defines engineering standards for production-grade delivery in thi
 - Keep scripts discoverable in `package.json`.
 - Keep docs updated when behavior or commands change.
 
+## 7.2) Database Workflow Rules
+
+- Canonical team DB commands:
+  - `pnpm db:migrate`
+  - `pnpm db:seed`
+  - `pnpm db:setup:full`
+- Use `pnpm db:setup` for daily onboarding/reset (migrate + seed).
+- Use `pnpm db:setup:full` before releasing schema-sensitive changes to keep `supabase/full-schema.sql` current.
+- Never manually edit migration history tables; use repair scripts only when absolutely required and document it in PR notes.
+
 ## 7.1) Logging Rules (Production)
 
 - Server logs must be structured JSON via `pino`.

@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { getProfileOrThrow, requireRoles } from '~/server/utils/auth'
 import { getServiceRoleClient } from '~/server/utils/supabase'
 import { notifyUser } from '~/server/services/notifications/user-notifications'
+import { isMemberOrderSource } from '~/server/utils/order-source'
 
 const bodySchema = z.object({
   status: z.enum(['verified', 'rejected']),
@@ -57,8 +58,7 @@ export default defineEventHandler(async (event) => {
           .eq('id', data.order_id)
           .maybeSingle()
         const userId = String((orderRow as any)?.user_id ?? '').trim()
-        const source = String((orderRow as any)?.source ?? '').trim()
-        const isMemberSource = source === 'Member Order'
+        const isMemberSource = isMemberOrderSource((orderRow as any)?.source)
         if (isMemberSource && userId) {
           const { data: recipientProfile } = await supabase
             .from('profiles')

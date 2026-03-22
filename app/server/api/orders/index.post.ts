@@ -10,6 +10,7 @@ import { getEventLogger, toErrorObject } from '~/server/utils/logger'
 import { enforceRateLimit } from '~/server/utils/rate-limit'
 import { enqueueMemberPurchaseNotifyQueue, processMemberPurchaseNotifyQueue } from '~/server/services/queues/member-purchase-notify-queue'
 import { notifyRoles } from '~/server/services/notifications/user-notifications'
+import { isMemberOrderSource, MEMBER_ORDER_SOURCE } from '~/server/utils/order-source'
 import {
   aggregateQuantityByVariant,
   aggregateStockByVariant,
@@ -129,7 +130,7 @@ export default defineSafeEventHandler(async (event) => {
     .insert({
       order_number: orderNumber,
       user_id: profile.id,
-      source: 'Member Order',
+      source: MEMBER_ORDER_SOURCE,
       status: isWallet ? 'confirmed' : isBankTransfer ? 'processing' : 'pending',
       payment_status: isWallet ? 'paid' : 'pending',
       paid_at: paidAt,
@@ -195,7 +196,7 @@ export default defineSafeEventHandler(async (event) => {
     throw createError({ statusCode: 500, message: submissionError.message })
   }
 
-  if (String(order.source ?? '') === 'Member Order') {
+  if (isMemberOrderSource(order.source)) {
     try {
       await enqueueMemberPurchaseNotifyQueue(event, { order_id: String(order.id) })
       void processMemberPurchaseNotifyQueue(event, { limit: 5 }).catch((error) => {

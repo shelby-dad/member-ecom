@@ -2,6 +2,7 @@ import type { H3Event } from 'h3'
 import nodemailer from 'nodemailer'
 import { getAppSettings } from '~/server/utils/app-settings'
 import { renderEmailTemplateTokens, renderEmailTemplateWithLineItems } from '~/server/utils/email-templates'
+import { isMemberOrderSource } from '~/server/utils/order-source'
 import { getServiceRoleClient } from '~/server/utils/supabase'
 
 interface MemberPurchasePayload {
@@ -157,7 +158,7 @@ export async function sendMemberPurchaseNotificationEmail(event: H3Event, payloa
     return { status: 'failed', error: `order_load_failed: ${orderError.message}` }
   if (!order)
     return { status: 'skipped', reason: 'order_missing' }
-  if (String(order.source ?? '') !== 'Member Order')
+  if (!isMemberOrderSource(order.source))
     return { status: 'skipped', reason: 'source_not_member_order' }
   if (orderItemsError)
     return { status: 'failed', error: `order_items_load_failed: ${orderItemsError.message}` }

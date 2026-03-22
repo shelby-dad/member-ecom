@@ -3,6 +3,7 @@ import { getProfileOrThrow, requireRoles } from '~/server/utils/auth'
 import { getServiceRoleClient } from '~/server/utils/supabase'
 import { applyOrderStock } from '~/server/utils/order-stock'
 import { notifyUser } from '~/server/services/notifications/user-notifications'
+import { isMemberOrderSource } from '~/server/utils/order-source'
 
 const bodySchema = z.object({
   status: z.enum(['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled']),
@@ -101,8 +102,7 @@ export default defineEventHandler(async (event) => {
   if (error)
     throw createError({ statusCode: 500, message: error.message })
 
-  const source = String((order as any).source ?? '').trim()
-  const isMemberSource = source === 'Member Order'
+  const isMemberSource = isMemberOrderSource((order as any).source)
 
   if (isMemberSource && String(parsed.data.status) !== previousStatus && String(order.user_id ?? '').trim()) {
     try {
