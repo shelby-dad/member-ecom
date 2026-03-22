@@ -30,7 +30,7 @@ function resolveSeo(path: string) {
   if (p === '/superadmin')
     return { title: 'Superadmin Overview', description: 'Manage global feature settings, pricing, shop, and system configuration.' }
   if (p.startsWith('/superadmin/email-templates'))
-    return { title: 'Email Templates', description: 'Manage system notification templates used by edge functions.' }
+    return { title: 'Email Templates', description: 'Manage system notification templates used by the server notification queue.' }
   if (p.startsWith('/superadmin/inbox'))
     return { title: 'Inbox', description: 'Review incoming member conversations and manage assignments.' }
   if (p.startsWith('/superadmin/profile'))

@@ -31,17 +31,19 @@
 
             <template v-else>
             <div v-if="canAssignOperator && selectedThread" class="mb-3 d-flex align-center ga-2">
-              <v-select
+              <v-autocomplete
                 v-model="assignedTo"
                 :items="operatorItems"
                 item-title="title"
                 item-value="value"
                 label="Assign operator"
+                placeholder="Search by name, email, role"
                 density="compact"
                 variant="outlined"
                 hide-details
                 style="max-width: 320px"
                 clearable
+                prepend-inner-icon="mdi-magnify"
               />
               <v-btn size="small" :loading="assignLoading" @click="saveAssignment">Assign</v-btn>
             </div>

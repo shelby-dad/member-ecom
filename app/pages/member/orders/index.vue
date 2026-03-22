@@ -108,6 +108,7 @@
 
 <script setup lang="ts">
 definePageMeta({ layout: 'member', middleware: 'role' })
+setPageLayout('member')
 const { formatPrice } = usePricingFormat()
 
 const orders = ref<any[]>([])

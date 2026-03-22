@@ -193,10 +193,24 @@
           </v-row>
           <v-text-field
             v-model="bankTransfer.transaction_id"
-            label="Transaction ID *"
+            label="Last 4 Digits of Transaction ID *"
             variant="outlined"
             class="mb-2"
           />
+          <div v-if="bankTransferSlipPreviewUrl" class="checkout-slip-preview-row mb-2">
+            <div class="checkout-slip-preview-box">
+              <v-img :src="bankTransferSlipPreviewUrl" cover width="100" height="100" />
+              <v-btn
+                icon
+                size="x-small"
+                color="error"
+                class="checkout-slip-remove-btn"
+                @click="removeSlip"
+              >
+                <v-icon size="14">mdi-close</v-icon>
+              </v-btn>
+            </div>
+          </div>
           <div class="d-flex align-center ga-2 mb-2">
             <input ref="slipInput" type="file" accept="image/jpeg,image/png,image/webp" class="d-none" @change="onSlipSelected">
             <v-btn variant="outlined" :loading="uploadingSlip" @click="slipInput?.click()">
@@ -324,6 +338,7 @@ const errorMsg = ref('')
 const walletBalance = ref(0)
 const slipInput = ref<HTMLInputElement | null>(null)
 const uploadingSlip = ref(false)
+const bankTransferSlipPreviewUrl = ref('')
 const initialLoading = ref(true)
 const { countries, states, cities, loading: geoLoading, ensureLoaded } = useAddressGeoCache()
 
@@ -565,6 +580,8 @@ async function onSlipSelected(e: Event) {
     const { error } = await supabase.storage.from('payment-slips').upload(path, file, { upsert: false })
     if (error) throw error
     bankTransfer.slip_path = path
+    clearSlipPreviewUrl()
+    bankTransferSlipPreviewUrl.value = URL.createObjectURL(file)
   }
   catch (e: any) {
     errorMsg.value = e?.message ?? 'Failed to upload slip'
@@ -574,6 +591,20 @@ async function onSlipSelected(e: Event) {
     uploadingSlip.value = false
     input.value = ''
   }
+}
+
+function clearSlipPreviewUrl() {
+  if (bankTransferSlipPreviewUrl.value) {
+    URL.revokeObjectURL(bankTransferSlipPreviewUrl.value)
+    bankTransferSlipPreviewUrl.value = ''
+  }
+}
+
+function removeSlip() {
+  bankTransfer.slip_path = ''
+  clearSlipPreviewUrl()
+  if (slipInput.value)
+    slipInput.value.value = ''
 }
 
 watch(selectedAddressId, (id) => {
@@ -590,6 +621,7 @@ watch(selectedAddressId, (id) => {
 watch(selectedPaymentMethodId, () => {
   bankTransfer.transaction_id = ''
   bankTransfer.slip_path = ''
+  clearSlipPreviewUrl()
 })
 
 watch(() => addressForm.country_id, () => {
@@ -725,6 +757,10 @@ onMounted(async () => {
     initialLoading.value = false
   }
 })
+
+onBeforeUnmount(() => {
+  clearSlipPreviewUrl()
+})
 </script>
 
 <style scoped>
@@ -783,6 +819,29 @@ onMounted(async () => {
   width: auto;
   height: auto;
   max-width: 100%;
+}
+
+.checkout-slip-preview-row {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.checkout-slip-preview-box {
+  width: 100px;
+  height: 100px;
+  position: relative;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.18);
+}
+
+.checkout-slip-remove-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  min-width: 22px;
+  width: 22px;
+  height: 22px;
 }
 
 .promo-action-wrap {

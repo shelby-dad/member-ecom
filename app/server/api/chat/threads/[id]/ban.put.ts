@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { getProfileOrThrow, requireRoles } from '~/server/utils/auth'
 import { assertThreadAccess, getThreadOrThrow } from '~/server/utils/chat'
 import { getServiceRoleClient } from '~/server/utils/supabase'
+import { notifyUser } from '~/server/services/notifications/user-notifications'
 
 const bodySchema = z.object({
   status: z.enum(['open', 'banned']),
@@ -40,6 +41,34 @@ export default defineEventHandler(async (event) => {
     .single()
   if (error || !data)
     throw createError({ statusCode: 500, message: error?.message ?? 'Failed to update thread status.' })
+
+  if (String(thread.status) !== String(nextStatus)) {
+    try {
+      const message = nextStatus === 'banned'
+        ? 'Your conversation was banned. Please contact the shop'
+        : 'Your conversation was unflagged. You can continue chatting with support.'
+      await notifyUser(event, {
+        user_id: String(thread.member_id),
+        actor_id: profile.id,
+        kind: nextStatus === 'banned' ? 'chat_banned_to_member' : 'chat_unflagged_to_member',
+        title: 'Your chat support',
+        message,
+        target_url: '/member/chat',
+        payload: {
+          thread_id: threadId,
+          status: nextStatus,
+        },
+        send_push: true,
+        recipient_role: 'member',
+        push_title: 'Your chat support',
+        push_body: message,
+        push_tag: nextStatus === 'banned' ? 'chat-banned-member' : 'chat-unflagged-member',
+      })
+    }
+    catch {
+      // Notification is best-effort.
+    }
+  }
 
   return { thread: data }
 })

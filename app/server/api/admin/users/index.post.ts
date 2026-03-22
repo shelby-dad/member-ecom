@@ -3,6 +3,8 @@ import { getProfileOrThrow, requireRoles, type AppRole } from '~/server/utils/au
 import { buildPhoneCandidates, isSamePhone } from '~/server/utils/phone'
 import { getServiceRoleClient } from '~/server/utils/supabase'
 import { canCreateRole } from '~/server/utils/user-management'
+import { processUserCreatedNotifyQueue } from '~/server/services/queues/user-created-notify-queue'
+import { getEventLogger, toErrorObject } from '~/server/utils/logger'
 
 const bodySchema = z.object({
   email: z.string().email(),
@@ -99,6 +101,17 @@ export default defineEventHandler(async (event) => {
     if (insertError)
       throw createError({ statusCode: 500, message: insertError.message })
   }
+
+  // Best-effort queue drain without blocking user creation UX.
+  void processUserCreatedNotifyQueue(event, { limit: 5 }).catch((error) => {
+    const logger = getEventLogger(event)
+    logger.error({
+      event: 'user_created_queue.best_effort_failed',
+      error: toErrorObject(error),
+      actor_id: profile.id,
+      created_user_id: userId,
+    }, 'Best-effort queue processing failed')
+  })
 
   return {
     id: userId,

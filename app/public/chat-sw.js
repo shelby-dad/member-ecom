@@ -53,14 +53,15 @@ self.addEventListener('push', (event) => {
     payload = {}
   }
   const title = String(payload.title || payload.sender_name || 'New message').trim() || 'New message'
-  const textBody = payload.body || 'You have a new chat message.'
+  const textBody = payload.body || 'You have a new notification.'
   const timeLabel = formatRelative(payload.sent_at || payload.ts)
   const body = `${textBody}\n${timeLabel}`
-  const url = payload.url || '/admin/inbox'
+  const url = payload.url || '/admin'
+  const tag = String(payload.tag || 'shop-notification').trim() || 'shop-notification'
 
   event.waitUntil(self.registration.showNotification(title, {
     body,
-    tag: 'shop-chat-message',
+    tag,
     data: { url },
     silent: false,
     requireInteraction: true,

@@ -7,6 +7,11 @@ export interface ChatPushRecipient {
   role: 'member' | 'staff' | 'admin' | 'superadmin'
 }
 
+export interface PushRecipient {
+  id: string
+  role: 'member' | 'staff' | 'admin' | 'superadmin'
+}
+
 let vapidConfigured = false
 
 function resolveInboxPath(role: ChatPushRecipient['role'], threadId?: string | null) {
@@ -79,6 +84,69 @@ export async function sendChatPushToRecipients(
       sender_name: input.title,
       body: input.body,
       url: resolveInboxPath(recipientRole, input.threadId),
+      ts: Date.now(),
+      sent_at: input.sentAt ?? null,
+    })
+
+    try {
+      await webpush.sendNotification({
+        endpoint: String((subscription as any).endpoint),
+        keys: {
+          p256dh: String((subscription as any).p256dh),
+          auth: String((subscription as any).auth),
+        },
+      }, payload)
+    }
+    catch (err: any) {
+      const statusCode = Number(err?.statusCode ?? 0)
+      if (statusCode === 404 || statusCode === 410) {
+        await supabase
+          .from('chat_push_subscriptions')
+          .delete()
+          .eq('id', String((subscription as any).id))
+      }
+    }
+  }
+}
+
+export async function sendPushToRecipients(
+  event: H3Event,
+  input: {
+    recipients: PushRecipient[]
+    title: string
+    body: string
+    sentAt?: string
+    url?: string | null
+    urlByUserId?: Record<string, string>
+    tag?: string
+  },
+) {
+  if (!configureVapidIfNeeded(event))
+    return
+
+  const recipientIds = [...new Set(input.recipients.map(item => String(item.id)).filter(Boolean))]
+  if (!recipientIds.length)
+    return
+
+  const supabase = await getServiceRoleClient(event)
+  const { data: subscriptions, error } = await supabase
+    .from('chat_push_subscriptions')
+    .select('id, user_id, endpoint, p256dh, auth')
+    .eq('is_active', true)
+    .in('user_id', recipientIds)
+
+  if (error || !subscriptions?.length)
+    return
+
+  for (const subscription of subscriptions) {
+    const recipientId = String((subscription as any).user_id)
+    const targetUrl = String(input.urlByUserId?.[recipientId] ?? input.url ?? '').trim()
+    const payload = JSON.stringify({
+      title: input.title,
+      sender_name: input.title,
+      body: input.body,
+      url: targetUrl || '/admin',
+      tag: String(input.tag ?? '').trim() || null,
       ts: Date.now(),
       sent_at: input.sentAt ?? null,
     })

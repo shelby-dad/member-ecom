@@ -11,6 +11,8 @@ import {
 } from '~/server/utils/chat'
 import { sendChatPushToRecipients, type ChatPushRecipient } from '~/server/utils/chat-push'
 import { getServiceRoleClient } from '~/server/utils/supabase'
+import { notifyRoles } from '~/server/services/notifications/user-notifications'
+import { notifyUser } from '~/server/services/notifications/user-notifications'
 
 const bodySchema = z.object({
   message: z.string().max(2000).optional().default(''),
@@ -145,15 +147,16 @@ export default defineEventHandler(async (event) => {
     })
   }
 
+  const { data: senderProfile } = await supabase
+    .from('profiles')
+    .select('full_name, email')
+    .eq('id', profile.id)
+    .maybeSingle()
+  const senderName = String((senderProfile as any)?.full_name ?? '').trim()
+    || String((senderProfile as any)?.email ?? '').trim()
+    || 'User'
+
   if (recipients.length) {
-    const { data: senderProfile } = await supabase
-      .from('profiles')
-      .select('full_name, email')
-      .eq('id', profile.id)
-      .maybeSingle()
-    const senderName = String((senderProfile as any)?.full_name ?? '').trim()
-      || String((senderProfile as any)?.email ?? '').trim()
-      || 'User'
     await sendChatPushToRecipients(event, {
       recipients,
       title: senderName,
@@ -161,6 +164,59 @@ export default defineEventHandler(async (event) => {
       sentAt: String(data.created_at),
       threadId: String(threadId),
     })
+  }
+
+  if (profile.role === 'member' && !thread.assigned_to) {
+    try {
+      await notifyRoles(event, {
+        roles: ['superadmin', 'admin', 'staff'],
+        actor_id: profile.id,
+        kind: 'chat_unassigned_member_started',
+        title: 'Unassigned conversation',
+        message: `${senderName} started conversation`,
+        target_url_by_role: {
+          superadmin: `/superadmin/inbox/${threadId}`,
+          admin: `/admin/inbox/${threadId}`,
+          staff: `/staff/inbox/${threadId}`,
+        },
+        payload: {
+          thread_id: threadId,
+          member_id: profile.id,
+          sender_name: senderName,
+        },
+        send_push: false,
+      })
+    }
+    catch {
+      // Notification is best-effort.
+    }
+  }
+
+  if ((profile.role === 'staff' || profile.role === 'admin' || profile.role === 'superadmin') && !thread.assigned_to) {
+    try {
+      const message = `Your conversation was assigned by ${senderName}`
+      await notifyUser(event, {
+        user_id: String(thread.member_id),
+        actor_id: profile.id,
+        kind: 'chat_assigned_to_member',
+        title: 'Your chat support',
+        message,
+        target_url: '/member/chat',
+        payload: {
+          thread_id: threadId,
+          assigned_to: profile.id,
+          assigned_by: profile.id,
+        },
+        send_push: true,
+        recipient_role: 'member',
+        push_title: 'Your chat support',
+        push_body: message,
+        push_tag: 'chat-assigned-member',
+      })
+    }
+    catch {
+      // Best-effort notification.
+    }
   }
 
   return { item: data }

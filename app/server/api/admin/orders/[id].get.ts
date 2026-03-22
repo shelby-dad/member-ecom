@@ -1,4 +1,5 @@
 import { getProfileOrThrow, requireRoles } from '~/server/utils/auth'
+import { withSignedPaymentSlipUrls } from '~/server/utils/payment-slip'
 import { getServiceRoleClient } from '~/server/utils/supabase'
 
 export default defineEventHandler(async (event) => {
@@ -61,11 +62,12 @@ export default defineEventHandler(async (event) => {
   if (memberRes.error)
     throw createError({ statusCode: 500, message: memberRes.error.message })
 
+  const signedSubmissions = await withSignedPaymentSlipUrls(supabase, (submissionsRes.data ?? []) as any[])
+
   return {
     order,
     items: itemsRes.data ?? [],
-    submissions: submissionsRes.data ?? [],
+    submissions: signedSubmissions,
     member: memberRes.data ?? null,
   }
 })
-

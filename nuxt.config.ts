@@ -26,6 +26,8 @@ export default defineNuxtConfig({
     supabaseManagementPat: process.env.SUPABASE_MANAGEMENT_PAT ?? '',
     supabaseOrgId: process.env.SUPABASE_ORG_ID ?? '',
     supabaseProjectRef: process.env.SUPABASE_PROJECT_REF ?? '',
+    internalQueueToken: process.env.INTERNAL_QUEUE_TOKEN ?? '',
+    queuePollIntervalMs: Number(process.env.INTERNAL_QUEUE_POLL_INTERVAL_MS ?? '15000') || 15000,
     // Public (exposed via NUXT_PUBLIC_* or SUPABASE_URL for image URLs)
     public: {
       appEnv: 'development',

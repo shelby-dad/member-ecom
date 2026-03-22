@@ -41,6 +41,10 @@
           <strong>Estimate delivery:</strong>
           {{ formatEstimateRange(order.estimate_delivery_start, order.estimate_delivery_end) }}
         </div>
+        <div v-if="order.delivery_name" class="text-body-2 mt-2">
+          <strong>Delivery Name:</strong>
+          {{ order.delivery_name }}
+        </div>
         <v-btn
           v-if="canDeleteOrder"
           color="error"
@@ -84,6 +88,10 @@
           <div v-if="order.estimate_delivery_start || order.estimate_delivery_end" class="info-row">
             <span class="info-key">Estimated Delivery</span>
             <span class="info-value">{{ formatEstimateRange(order.estimate_delivery_start, order.estimate_delivery_end) }}</span>
+          </div>
+          <div v-if="order.delivery_name" class="info-row">
+            <span class="info-key">Delivery Name</span>
+            <span class="info-value">{{ order.delivery_name }}</span>
           </div>
         </div>
       </v-card-text>
@@ -143,6 +151,7 @@
             <th>Invoice #</th>
             <th>Amount</th>
             <th>Transaction ID</th>
+            <th>Slip</th>
             <th>Status</th>
             <th>Actions</th>
           </tr>
@@ -152,6 +161,17 @@
             <td>{{ s.invoice_number || '–' }}</td>
             <td>{{ formatPrice(s.amount) }}</td>
             <td>{{ s.transaction_id || '–' }}</td>
+            <td>
+              <v-btn
+                v-if="s.slip_url"
+                class="payment-slip-thumb"
+                variant="text"
+                @click="openImageViewer(s.slip_url)"
+              >
+                <v-img :src="s.slip_url" cover width="40" height="40" />
+              </v-btn>
+              <span v-else>–</span>
+            </td>
             <td>{{ s.status }}</td>
             <td>
               <v-btn v-if="s.status === 'pending'" size="small" color="success" class="me-1" @click="verify(s.id, 'verified')">Verify</v-btn>
@@ -191,6 +211,13 @@
             value-format="iso"
             :emit-on-close="true"
           />
+          <v-text-field
+            v-model="deliveryName"
+            label="Delivery Name (optional)"
+            variant="outlined"
+            density="comfortable"
+            class="mt-3"
+          />
         </v-card-text>
         <v-card-actions>
           <v-spacer />
@@ -203,6 +230,23 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+    <v-dialog v-model="imageViewerOpen" max-width="920">
+      <v-card>
+        <v-card-title class="d-flex align-center">
+          <span>Slip Viewer</span>
+          <v-spacer />
+          <v-btn icon="mdi-close" variant="text" @click="imageViewerOpen = false" />
+        </v-card-title>
+        <v-card-text class="d-flex justify-center">
+          <v-img
+            v-if="imageViewerUrl"
+            :src="imageViewerUrl"
+            class="payment-slip-viewer"
+            contain
+          />
+        </v-card-text>
+      </v-card>
+    </v-dialog>
   </div>
   <div v-else class="text-center py-8 text-medium-emphasis">
     Order not found.
@@ -211,6 +255,7 @@
 
 <script setup lang="ts">
 definePageMeta({ layout: 'admin', middleware: 'role' })
+setPageLayout('admin')
 const { formatPrice } = usePricingFormat()
 
 const route = useRoute()
@@ -225,8 +270,11 @@ const showShippedDialog = ref(false)
 const deleting = ref(false)
 const canDeleteOrder = ref(false)
 const updatingStatus = ref(false)
+const imageViewerOpen = ref(false)
+const imageViewerUrl = ref('')
 const selectedStatus = ref<string>('')
 const estimateRange = ref<{ start: string | null, end: string | null }>({ start: null, end: null })
+const deliveryName = ref('')
 
 async function load() {
   loading.value = true
@@ -246,7 +294,7 @@ async function load() {
   }
 }
 
-async function updateStatus(status: string, estimateStart?: string | null, estimateEnd?: string | null) {
+async function updateStatus(status: string, estimateStart?: string | null, estimateEnd?: string | null, shippedDeliveryName?: string | null) {
   if (!order.value)
     return
   updatingStatus.value = true
@@ -257,6 +305,7 @@ async function updateStatus(status: string, estimateStart?: string | null, estim
         status,
         estimate_delivery_start: status === 'shipped' ? (estimateStart ?? null) : null,
         estimate_delivery_end: status === 'shipped' ? (estimateEnd ?? null) : null,
+        delivery_name: status === 'shipped' ? (String(shippedDeliveryName ?? '').trim() || null) : null,
       },
     })
     await load()
@@ -293,6 +342,7 @@ function onStatusChange(nextStatus: string) {
       start: order.value.estimate_delivery_start ?? null,
       end: order.value.estimate_delivery_end ?? null,
     }
+    deliveryName.value = String(order.value.delivery_name ?? '').trim()
     showShippedDialog.value = true
     return
   }
@@ -305,7 +355,7 @@ function cancelShippedDialog() {
 }
 
 async function confirmShippedStatus() {
-  await updateStatus('shipped', estimateRange.value.start, estimateRange.value.end)
+  await updateStatus('shipped', estimateRange.value.start, estimateRange.value.end, deliveryName.value)
   showShippedDialog.value = false
 }
 
@@ -360,6 +410,14 @@ function formatDiscount(value: unknown) {
   if (!n)
     return '-'
   return formatPrice(n)
+}
+
+function openImageViewer(url?: string | null) {
+  const next = String(url ?? '').trim()
+  if (!next)
+    return
+  imageViewerUrl.value = next
+  imageViewerOpen.value = true
 }
 
 async function verify(subId: string, status: 'verified' | 'rejected') {
@@ -435,5 +493,20 @@ onMounted(async () => {
 .summary-row--total .summary-key,
 .summary-row--total .summary-value {
   font-size: 1.02rem;
+}
+
+.payment-slip-thumb {
+  min-width: 40px;
+  width: 40px;
+  height: 40px;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.2);
+  border-radius: 8px;
+  overflow: hidden;
+  padding: 0;
+}
+
+.payment-slip-viewer {
+  width: 100%;
+  max-height: 72vh;
 }
 </style>

@@ -15,6 +15,3 @@ major_version = 15
 [studio]
 enabled = true
 port = 54323
-
-[functions.user-created-notify]
-verify_jwt = false

@@ -33,9 +33,46 @@
         <p><strong>Payment method:</strong> {{ formatPaymentMethod(order.payment_method_type) }}</p>
         <p><strong>Payment status:</strong> {{ formatTextOrDash(order.payment_status) }}</p>
         <p><strong>Estimate delivery:</strong> {{ formatEstimateRange(order.estimate_delivery_start, order.estimate_delivery_end) }}</p>
+        <p v-if="order.delivery_name"><strong>Delivery Name:</strong> {{ order.delivery_name }}</p>
         <p><strong>Discount Amount:</strong> {{ formatDiscount(order.discount_total) }}</p>
         <p><strong>Total:</strong> {{ formatPrice(order.total) }}</p>
         <p><strong>Date:</strong> {{ formatDate(order.created_at) }}</p>
+      </v-card-text>
+    </v-card>
+    <v-card class="mb-4">
+      <v-card-title>Payments</v-card-title>
+      <v-table v-if="submissions.length">
+        <thead>
+          <tr>
+            <th>Invoice #</th>
+            <th>Method</th>
+            <th>Transaction ID</th>
+            <th>Slip</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="submissionItem in submissions" :key="submissionItem.id">
+            <td>{{ submissionItem.invoice_number || '-' }}</td>
+            <td>{{ resolveSubmissionMethodName(submissionItem) }}</td>
+            <td>{{ submissionItem.transaction_id || '-' }}</td>
+            <td>
+              <v-btn
+                v-if="submissionItem.slip_url"
+                class="payment-slip-thumb"
+                variant="text"
+                @click="openImageViewer(submissionItem.slip_url)"
+              >
+                <v-img :src="submissionItem.slip_url" cover width="40" height="40" />
+              </v-btn>
+              <span v-else>-</span>
+            </td>
+            <td>{{ submissionItem.status || '-' }}</td>
+          </tr>
+        </tbody>
+      </v-table>
+      <v-card-text v-else class="text-medium-emphasis">
+        No payment submissions.
       </v-card-text>
     </v-card>
     <v-card class="mb-4">
@@ -74,6 +111,23 @@
     <v-snackbar v-model="snack" :color="snackSuccess ? 'success' : 'error'">
       {{ snackMsg }}
     </v-snackbar>
+    <v-dialog v-model="imageViewerOpen" max-width="920">
+      <v-card>
+        <v-card-title class="d-flex align-center">
+          <span>Slip Viewer</span>
+          <v-spacer />
+          <v-btn icon="mdi-close" variant="text" @click="imageViewerOpen = false" />
+        </v-card-title>
+        <v-card-text class="d-flex justify-center">
+          <v-img
+            v-if="imageViewerUrl"
+            :src="imageViewerUrl"
+            class="payment-slip-viewer"
+            contain
+          />
+        </v-card-text>
+      </v-card>
+    </v-dialog>
   </div>
   <div v-else class="text-center py-8 text-medium-emphasis">
     Order not found.
@@ -82,6 +136,7 @@
 
 <script setup lang="ts">
 definePageMeta({ layout: 'member', middleware: 'role' })
+setPageLayout('member')
 const { formatPrice } = usePricingFormat()
 
 const route = useRoute()
@@ -89,11 +144,14 @@ const id = route.params.id as string
 const loading = ref(true)
 const order = ref<any>(null)
 const orderItems = ref<any[]>([])
+const submissions = ref<any[]>([])
 const paymentMethods = ref<any[]>([])
 const submitting = ref(false)
 const snack = ref(false)
 const snackSuccess = ref(false)
 const snackMsg = ref('')
+const imageViewerOpen = ref(false)
+const imageViewerUrl = ref('')
 const submission = reactive({ payment_method_id: '', transaction_id: '' })
 
 function formatDate(d: string) {
@@ -131,17 +189,33 @@ function formatDiscount(value: unknown) {
   return formatPrice(n)
 }
 
+function resolveSubmissionMethodName(row: any) {
+  const raw = row?.payment_methods
+  if (Array.isArray(raw))
+    return String(raw[0]?.name ?? '').trim() || formatPaymentMethod(order.value?.payment_method_type)
+  return String(raw?.name ?? '').trim() || formatPaymentMethod(order.value?.payment_method_type)
+}
+
 async function load() {
   loading.value = true
   try {
-    const data = await $fetch<{ order: any, items: any[], paymentMethods: any[] }>(`/api/member/orders/${id}`)
+    const data = await $fetch<{ order: any, items: any[], paymentMethods: any[], submissions: any[] }>(`/api/member/orders/${id}`)
     order.value = data.order ?? null
     orderItems.value = data.items ?? []
     paymentMethods.value = data.paymentMethods ?? []
+    submissions.value = data.submissions ?? []
   }
   finally {
     loading.value = false
   }
+}
+
+function openImageViewer(url?: string | null) {
+  const next = String(url ?? '').trim()
+  if (!next)
+    return
+  imageViewerUrl.value = next
+  imageViewerOpen.value = true
 }
 
 async function submitPayment() {
@@ -174,3 +248,20 @@ async function submitPayment() {
 
 onMounted(load)
 </script>
+
+<style scoped>
+.payment-slip-thumb {
+  min-width: 40px;
+  width: 40px;
+  height: 40px;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.2);
+  border-radius: 8px;
+  overflow: hidden;
+  padding: 0;
+}
+
+.payment-slip-viewer {
+  width: 100%;
+  max-height: 72vh;
+}
+</style>

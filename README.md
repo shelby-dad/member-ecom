@@ -51,24 +51,22 @@ Never share keys across environments.
   pnpm clean:db
   ```
 
-## Supabase Functions (Microservice)
+## Notification Queue (Nuxt Server)
 
-- Function workspace: `functions/` (separate app, separate package)
-- Node version: `22.14.0` via `functions/.nvmrc`
-- Shared utilities: `functions/_shared`
-- First production function: `user-created-notify`
-  - Triggered on `auth.users` insert via DB trigger (`pg_net`)
-  - Sends email to active `superadmin` and `admin` users when SMTP settings are valid
-  - Synced into `supabase/functions` only for Supabase CLI deploy/serve
+User-created notification flow is now Nuxt-native:
 
-Run from `functions/`:
+- DB trigger inserts a queue job into `public.internal_job_queue` on `auth.users` insert.
+- Nuxt server worker processes jobs and sends SMTP email to active `superadmin`/`admin` users.
+- Processing is non-blocking for user creation and includes retry/backoff on transient failures.
+- Email template orchestration uses `email_templates.user_add_notification` (inactive template skips send).
+
+Optional internal endpoint for cron/ops queue drain:
+
 ```bash
-cd functions
-nvm use
-pnpm deploy:user-created-notify:production
+POST /api/internal/jobs/user-created-notify/process
+Header: x-internal-queue-token: <INTERNAL_QUEUE_TOKEN>
+Body: { "limit": 25 }
 ```
-
-Trigger runtime config in DB uses `public.internal_edge_settings` (Supabase-safe).
 
 ## Scripts
 
@@ -86,6 +84,7 @@ Trigger runtime config in DB uses `public.internal_edge_settings` (Supabase-safe
 | `pnpm db:seed` | Seed default users |
 | `pnpm clean:db` | Purge business data safely |
 | `pnpm clean:conversations` | Remove chat conversation data safely |
+| `pnpm clean:members` | Hard-delete member users and related data |
 
 ## Quality And Enterprise Baseline
 
@@ -95,6 +94,7 @@ Trigger runtime config in DB uses `public.internal_edge_settings` (Supabase-safe
 - Unit tests for composables and server utilities (`app/tests`).
 - CI pipeline for lint, typecheck, test, and build (`.github/workflows/ci.yml`).
 - Security headers configured in Nitro route rules.
+- Structured server logging with request IDs (`pino` + middleware + Nitro error hook).
 
 See [DEV.md](/Users/benz/dev/single-tenat-shop/DEV.md) for coding rules, architecture boundaries, and production checklist.
 
@@ -104,7 +104,9 @@ See [DEV.md](/Users/benz/dev/single-tenat-shop/DEV.md) for coding rules, archite
 - Supabase RLS for data ownership isolation.
 - Service-role key only used server-side.
 - SMTP secret is encrypted at rest using `CRYPTO_KEY` (AES-256-GCM) and stored in `smtp_password_iv` + `smtp_password_content`.
+- Internal queue endpoint requires `INTERNAL_QUEUE_TOKEN` when called externally (cron/ops).
 - Input validation and defensive parsing in server routes.
+- Log redaction for sensitive fields (`authorization`, `cookie`, passwords, tokens, SMTP secret parts).
 - Security headers:
   - `X-Frame-Options`
   - `X-Content-Type-Options`
@@ -118,11 +120,11 @@ See [DEV.md](/Users/benz/dev/single-tenat-shop/DEV.md) for coding rules, archite
 
 - `app/`: Nuxt source
 - `app/server/`: backend API and domain utils
+- `app/server/middleware/00.request-logger.ts`: request/response lifecycle logs
+- `app/server/utils/logger.ts`: shared logger and error serialization
 - `app/assets/scss/`: global styles + theme tokens
 - `app/tests/`: unit tests
 - `supabase/migrations/`: schema and policy migrations
-- `functions/`: standalone edge microservice app (source of truth)
-- `supabase/functions/`: generated sync target for Supabase CLI
 - `scripts/`: operational scripts
 
 ## Recent Implementations (March 2026)

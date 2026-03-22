@@ -6,7 +6,7 @@
           Email Templates
         </h1>
         <p class="text-body-1 text-medium-emphasis">
-          Manage system notification templates used by edge functions.
+          Manage system notification templates used by the server notification queue.
         </p>
       </div>
     </div>
@@ -31,7 +31,6 @@
                 {{ item.is_active ? 'Active' : 'Inactive' }}
               </v-chip>
             </div>
-
             <div class="text-caption text-medium-emphasis">
               Key: <code>{{ item.template_key }}</code>
             </div>
@@ -135,7 +134,7 @@ definePageMeta({ layout: 'superadmin', middleware: 'role' })
 
 useSeoMeta({
   title: 'Email Templates',
-  description: 'Manage superadmin email templates for edge notification workflows.',
+  description: 'Manage superadmin email templates for server queue notification workflows.',
 })
 
 interface TemplateVariable {

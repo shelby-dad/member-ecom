@@ -85,6 +85,191 @@
         </v-list>
       </v-menu>
 
+      <v-menu
+        v-if="!isMobileNotifications"
+        v-model="notificationMenuOpen"
+        location="bottom end"
+        :close-on-content-click="false"
+      >
+        <template #activator="{ props: menuProps }">
+          <v-btn icon variant="text" aria-label="Open notifications" v-bind="menuProps">
+            <v-badge
+              :model-value="notificationUnreadCount > 0"
+              :content="notificationUnreadCount"
+              color="warning"
+              location="top end"
+              offset-x="2"
+              offset-y="2"
+              class="app-notification-badge"
+            >
+              <v-icon>mdi-bell-outline</v-icon>
+            </v-badge>
+          </v-btn>
+        </template>
+          <v-card
+            min-width="360"
+            max-width="420"
+            :style="{ height: notificationPanelHeight }"
+            class="d-flex flex-column"
+          >
+            <v-card-title class="text-subtitle-1 py-3">
+              Notifications
+            </v-card-title>
+            <v-divider />
+            <div
+              ref="notificationScrollRef"
+              class="app-notification-scroll flex-grow-1"
+              @scroll.passive="handleNotificationScroll"
+            >
+              <div v-if="notificationLoading && notificationItems.length === 0" class="pa-3">
+                <v-skeleton-loader type="list-item-two-line" class="mb-2" />
+                <v-skeleton-loader type="list-item-two-line" class="mb-2" />
+                <v-skeleton-loader type="list-item-two-line" />
+              </div>
+
+              <v-list v-else density="comfortable" class="py-0">
+                <template v-for="(item, index) in notificationItems" :key="item.id">
+                  <v-list-item
+                    class="app-notification-item"
+                    :class="{ 'app-notification-item--unread': !item.is_read }"
+                    link
+                    @click.stop="openNotification(item)"
+                  >
+                    <template #prepend>
+                      <v-icon :color="item.is_read ? 'medium-emphasis' : 'warning'">
+                        {{ notificationIconByKind(item.kind) }}
+                      </v-icon>
+                    </template>
+                    <v-list-item-title class="text-body-2 font-weight-medium app-notification-title">
+                      {{ item.title }}
+                    </v-list-item-title>
+                    <v-list-item-subtitle class="text-body-2 app-notification-message">
+                      {{ item.message }}
+                    </v-list-item-subtitle>
+                    <template #append>
+                      <span class="text-caption text-medium-emphasis">{{ formatNotificationRelativeTime(item.created_at) }}</span>
+                    </template>
+                  </v-list-item>
+                  <v-divider v-if="index < notificationItems.length - 1" class="mx-3 my-1" />
+                </template>
+              </v-list>
+
+              <div v-if="!notificationLoading && notificationItems.length === 0" class="pa-4 text-body-2 text-medium-emphasis text-center">
+                No notifications yet.
+              </div>
+              <div v-if="notificationLoadingMore" class="pa-2">
+                <v-progress-linear indeterminate color="primary" rounded />
+              </div>
+            </div>
+            <v-divider />
+            <div class="app-notification-footer pa-3">
+              <v-btn
+                block
+                color="primary"
+                variant="tonal"
+                :disabled="notificationUnreadCount <= 0 || notificationMarkingAllRead"
+                :loading="notificationMarkingAllRead"
+                @click="markAllNotificationsAsRead"
+              >
+                Mark as Read All
+              </v-btn>
+            </div>
+          </v-card>
+      </v-menu>
+
+      <v-btn
+        v-else
+        icon
+        variant="text"
+        aria-label="Open notifications"
+        @click="notificationDialogOpen = true"
+      >
+        <v-badge
+          :model-value="notificationUnreadCount > 0"
+          :content="notificationUnreadCount"
+          color="warning"
+          location="top end"
+          offset-x="2"
+          offset-y="2"
+          class="app-notification-badge"
+        >
+          <v-icon>mdi-bell-outline</v-icon>
+        </v-badge>
+      </v-btn>
+
+      <v-dialog
+        v-model="notificationDialogOpen"
+        fullscreen
+        transition="dialog-bottom-transition"
+      >
+        <v-card class="d-flex flex-column">
+          <v-card-title class="d-flex align-center">
+            <span>Notifications</span>
+            <v-spacer />
+            <v-btn icon="mdi-close" variant="text" @click="notificationDialogOpen = false" />
+          </v-card-title>
+          <v-divider />
+          <div
+            ref="notificationScrollRef"
+            class="app-notification-scroll flex-grow-1"
+            @scroll.passive="handleNotificationScroll"
+          >
+            <div v-if="notificationLoading && notificationItems.length === 0" class="pa-3">
+              <v-skeleton-loader type="list-item-two-line" class="mb-2" />
+              <v-skeleton-loader type="list-item-two-line" class="mb-2" />
+              <v-skeleton-loader type="list-item-two-line" />
+            </div>
+
+            <v-list v-else density="comfortable" class="py-0">
+              <template v-for="(item, index) in notificationItems" :key="item.id">
+                <v-list-item
+                  class="app-notification-item"
+                  :class="{ 'app-notification-item--unread': !item.is_read }"
+                  link
+                  @click.stop="openNotification(item)"
+                >
+                  <template #prepend>
+                    <v-icon :color="item.is_read ? 'medium-emphasis' : 'warning'">
+                      {{ notificationIconByKind(item.kind) }}
+                    </v-icon>
+                  </template>
+                  <v-list-item-title class="text-body-2 font-weight-medium app-notification-title">
+                    {{ item.title }}
+                  </v-list-item-title>
+                  <v-list-item-subtitle class="text-body-2 app-notification-message">
+                    {{ item.message }}
+                  </v-list-item-subtitle>
+                  <template #append>
+                    <span class="text-caption text-medium-emphasis">{{ formatNotificationRelativeTime(item.created_at) }}</span>
+                  </template>
+                </v-list-item>
+                <v-divider v-if="index < notificationItems.length - 1" class="mx-3 my-1" />
+              </template>
+            </v-list>
+
+            <div v-if="!notificationLoading && notificationItems.length === 0" class="pa-4 text-body-2 text-medium-emphasis text-center">
+              No notifications yet.
+            </div>
+            <div v-if="notificationLoadingMore" class="pa-2">
+              <v-progress-linear indeterminate color="primary" rounded />
+            </div>
+          </div>
+          <v-divider />
+          <div class="app-notification-footer pa-3">
+            <v-btn
+              block
+              color="primary"
+              variant="tonal"
+              :disabled="notificationUnreadCount <= 0 || notificationMarkingAllRead"
+              :loading="notificationMarkingAllRead"
+              @click="markAllNotificationsAsRead"
+            >
+              Mark as Read All
+            </v-btn>
+          </div>
+        </v-card>
+      </v-dialog>
+
       <v-menu location="bottom end">
         <template #activator="{ props: menuProps }">
           <v-btn icon variant="text" v-bind="menuProps" aria-label="Select color theme">
@@ -156,7 +341,7 @@ const props = defineProps<{
 
 const route = useRoute()
 const config = useRuntimeConfig()
-const { mdAndUp } = useDisplay()
+const { mdAndUp, xs, lgAndUp } = useDisplay()
 const railCookie = useCookie<string | null>('app-shell-rail', { sameSite: 'lax', path: '/' })
 const railStorageKey = 'app-shell-rail'
 const drawer = ref(false)
@@ -171,6 +356,8 @@ let lastPresencePingAt = 0
 let chatUnreadPollTimer: ReturnType<typeof setInterval> | null = null
 let chatUnreadDebounceTimer: ReturnType<typeof setTimeout> | null = null
 let chatUnreadChannel: RealtimeChannel | null = null
+let notificationChannel: RealtimeChannel | null = null
+let notificationDebounceTimer: ReturnType<typeof setTimeout> | null = null
 
 const { activeRole, availableRoles, syncActiveRole, setActiveRole } = useActiveRole(baseRole)
 const shellRole = computed(() => activeRole.value ?? props.role)
@@ -185,6 +372,29 @@ const { notifyMessage, prepareSound } = useChatNotifications()
 const { registerPushSubscription } = useChatPush()
 const chatUnreadCount = ref(0)
 const chatPushReady = ref(false)
+const notificationMenuOpen = ref(false)
+const notificationDialogOpen = ref(false)
+const notificationScrollRef = ref<HTMLElement | null>(null)
+const notificationItems = ref<Array<{
+  id: string
+  kind: string
+  title: string
+  message: string
+  target_url?: string | null
+  created_at: string
+  is_read: boolean
+}>>([])
+const notificationUnreadCount = ref(0)
+const notificationPage = ref(1)
+const notificationPerPage = ref(20)
+const notificationTotal = ref(0)
+const notificationHasMore = ref(true)
+const notificationLoading = ref(false)
+const notificationLoadingMore = ref(false)
+const notificationMarkingAllRead = ref(false)
+
+const isMobileNotifications = computed(() => xs.value)
+const notificationPanelHeight = computed(() => (lgAndUp.value ? '75vh' : '95vh'))
 
 const roleLabelMap: Record<AppRole, string> = {
   superadmin: 'Superadmin',
@@ -351,6 +561,19 @@ function notificationBodyFromMessage(message: string, hasAttachment: boolean) {
   return 'received image'
 }
 
+function notificationIconByKind(kind?: string | null) {
+  const value = String(kind ?? '').trim()
+  if (value.includes('wallet'))
+    return 'mdi-wallet-outline'
+  if (value.includes('chat'))
+    return 'mdi-chat-processing-outline'
+  if (value.includes('payment'))
+    return 'mdi-credit-card-check-outline'
+  if (value.includes('order'))
+    return 'mdi-receipt-text-outline'
+  return 'mdi-bell-outline'
+}
+
 function notificationTargetPath(threadId?: string | null) {
   const normalizedThreadId = String(threadId ?? '').trim()
   if (shellRole.value === 'member')
@@ -360,6 +583,170 @@ function notificationTargetPath(threadId?: string | null) {
   if (shellRole.value === 'superadmin')
     return normalizedThreadId ? `/superadmin/inbox/${normalizedThreadId}` : '/superadmin/inbox'
   return normalizedThreadId ? `/admin/inbox/${normalizedThreadId}` : '/admin/inbox'
+}
+
+function formatNotificationRelativeTime(value?: string | null) {
+  const date = value ? new Date(value) : new Date()
+  if (Number.isNaN(date.getTime()))
+    return ''
+  const diffMs = Math.max(0, Date.now() - date.getTime())
+  const sec = Math.floor(diffMs / 1000)
+  if (sec < 10)
+    return 'just now'
+  if (sec < 60)
+    return `${sec}s ago`
+  const min = Math.floor(sec / 60)
+  if (min < 60)
+    return `${min}m ago`
+  const hr = Math.floor(min / 60)
+  if (hr < 24)
+    return `${hr}h ago`
+  const day = Math.floor(hr / 24)
+  return `${day}d ago`
+}
+
+function scheduleNotificationUnreadRefresh() {
+  if (notificationDebounceTimer)
+    clearTimeout(notificationDebounceTimer)
+  notificationDebounceTimer = setTimeout(() => {
+    refreshNotificationUnreadCount()
+  }, 120)
+}
+
+async function refreshNotificationUnreadCount() {
+  try {
+    const data = await $fetch<{ unread: number }>('/api/notifications/unread-count')
+    notificationUnreadCount.value = Math.max(0, Number(data?.unread ?? 0))
+  }
+  catch {
+    // Best effort for badge state.
+  }
+}
+
+async function loadNotifications(options?: { reset?: boolean }) {
+  const reset = Boolean(options?.reset)
+  if (notificationLoading.value || notificationLoadingMore.value)
+    return
+
+  if (reset) {
+    notificationPage.value = 1
+    notificationHasMore.value = true
+  }
+  if (!notificationHasMore.value && !reset)
+    return
+
+  if (notificationItems.value.length === 0 || reset)
+    notificationLoading.value = true
+  else
+    notificationLoadingMore.value = true
+
+  try {
+    const data = await $fetch<{
+      items: Array<any>
+      total: number
+      page: number
+      per_page: number
+      has_more: boolean
+    }>('/api/notifications', {
+      query: {
+        page: notificationPage.value,
+        per_page: notificationPerPage.value,
+      },
+    })
+
+    const nextItems = (data?.items ?? []).map(item => ({
+      id: String(item.id),
+      kind: String(item.kind ?? ''),
+      title: String(item.title ?? ''),
+      message: String(item.message ?? ''),
+      target_url: String(item.target_url ?? '').trim() || null,
+      created_at: String(item.created_at ?? ''),
+      is_read: Boolean(item.is_read),
+    }))
+
+    if (reset) {
+      notificationItems.value = nextItems
+    } else {
+      const merged = [...notificationItems.value]
+      const existingIds = new Set(merged.map(item => item.id))
+      for (const item of nextItems) {
+        if (!existingIds.has(item.id))
+          merged.push(item)
+      }
+      notificationItems.value = merged
+    }
+
+    notificationTotal.value = Number(data?.total ?? 0)
+    notificationHasMore.value = Boolean(data?.has_more)
+    notificationPage.value += 1
+  }
+  catch {
+    // Best effort for dropdown list.
+  }
+  finally {
+    notificationLoading.value = false
+    notificationLoadingMore.value = false
+  }
+}
+
+async function markNotificationAsRead(id: string) {
+  const normalized = String(id ?? '').trim()
+  if (!normalized)
+    return
+  try {
+    await $fetch(`/api/notifications/${normalized}/read`, { method: 'PUT' })
+    notificationItems.value = notificationItems.value.map(item =>
+      item.id === normalized
+        ? { ...item, is_read: true }
+        : item,
+    )
+    notificationUnreadCount.value = Math.max(
+      0,
+      notificationItems.value.filter(item => !item.is_read).length,
+    )
+  }
+  catch {
+    // Best effort.
+  }
+}
+
+async function markAllNotificationsAsRead() {
+  if (notificationMarkingAllRead.value || notificationUnreadCount.value <= 0)
+    return
+  notificationMarkingAllRead.value = true
+  try {
+    await $fetch('/api/notifications/read-all', { method: 'PUT' })
+    notificationItems.value = notificationItems.value.map(item => ({ ...item, is_read: true }))
+    notificationUnreadCount.value = 0
+  }
+  catch {
+    // Best effort.
+  }
+  finally {
+    notificationMarkingAllRead.value = false
+  }
+}
+
+function openNotification(item: {
+  id: string
+  is_read: boolean
+  target_url?: string | null
+}) {
+  notificationMenuOpen.value = false
+  notificationDialogOpen.value = false
+  if (!item.is_read)
+    void markNotificationAsRead(item.id)
+  const target = String(item.target_url ?? '').trim()
+  if (target)
+    void navigateTo(target)
+}
+
+function handleNotificationScroll() {
+  const el = notificationScrollRef.value
+  if (!el || notificationLoading.value || notificationLoadingMore.value || !notificationHasMore.value)
+    return
+  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 56)
+    loadNotifications()
 }
 
 async function refreshChatUnreadCount() {
@@ -392,6 +779,15 @@ function clearUnreadWatchers() {
   }
   chatUnreadChannel?.unsubscribe()
   chatUnreadChannel = null
+}
+
+function clearNotificationWatchers() {
+  if (notificationDebounceTimer) {
+    clearTimeout(notificationDebounceTimer)
+    notificationDebounceTimer = null
+  }
+  notificationChannel?.unsubscribe()
+  notificationChannel = null
 }
 
 async function setupUnreadWatchers() {
@@ -436,6 +832,70 @@ async function setupUnreadWatchers() {
   chatUnreadPollTimer = setInterval(() => {
     refreshChatUnreadCount()
   }, 12000)
+}
+
+async function setupNotificationWatchers() {
+  clearNotificationWatchers()
+  await refreshNotificationUnreadCount()
+  if (!profile.value?.id)
+    return
+
+  notificationChannel = supabase
+    .channel(`app-shell-user-notifications-${String(profile.value.id)}`)
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'user_notifications',
+        filter: `user_id=eq.${String(profile.value.id)}`,
+      },
+      async (payload: any) => {
+        const eventType = String(payload?.eventType ?? '')
+        if (eventType === 'INSERT') {
+          const row = payload?.new ?? {}
+          const id = String(row.id ?? '')
+          if (!id)
+            return
+          const next = {
+            id,
+            kind: String(row.kind ?? ''),
+            title: String(row.title ?? ''),
+            message: String(row.message ?? ''),
+            target_url: String(row.target_url ?? '').trim() || null,
+            created_at: String(row.created_at ?? ''),
+            is_read: Boolean(row.is_read),
+          }
+          notificationItems.value = [
+            next,
+            ...notificationItems.value.filter(item => item.id !== id),
+          ]
+          scheduleNotificationUnreadRefresh()
+          return
+        }
+
+        if (eventType === 'UPDATE') {
+          const id = String(payload?.new?.id ?? '')
+          if (!id)
+            return
+          notificationItems.value = notificationItems.value.map((item) => {
+            if (item.id !== id)
+              return item
+            return {
+              ...item,
+              title: String(payload?.new?.title ?? item.title),
+              kind: String(payload?.new?.kind ?? item.kind),
+              message: String(payload?.new?.message ?? item.message),
+              target_url: String(payload?.new?.target_url ?? item.target_url ?? '').trim() || null,
+              created_at: String(payload?.new?.created_at ?? item.created_at),
+              is_read: Boolean(payload?.new?.is_read),
+            }
+          })
+          scheduleNotificationUnreadRefresh()
+        }
+      },
+    )
+    .subscribe()
 }
 
 async function pingPresence(force = false) {
@@ -490,10 +950,22 @@ watch(rail, (value) => {
 
 watch(shellRole, () => {
   setupUnreadWatchers()
+  setupNotificationWatchers()
 })
 
 watch(() => route.fullPath, () => {
   refreshChatUnreadCount()
+})
+
+watch([notificationMenuOpen, notificationDialogOpen], ([menuOpen, dialogOpen]) => {
+  const open = Boolean(menuOpen || dialogOpen)
+  if (!open)
+    return
+  if (!notificationItems.value.length) {
+    loadNotifications({ reset: true })
+    return
+  }
+  refreshNotificationUnreadCount()
 })
 
 onMounted(async () => {
@@ -507,6 +979,7 @@ onMounted(async () => {
   if ((currentProfile?.role as AppRole) === 'member')
     await memberCart.ensureLoaded()
   await setupUnreadWatchers()
+  await setupNotificationWatchers()
   await prepareSound()
   if (import.meta.client && typeof Notification !== 'undefined' && Notification.permission === 'granted' && hasWebPushSupport()) {
     const ok = await registerPushSubscription(String(config.public.vapidPublicKey ?? '')).catch(() => false)
@@ -534,10 +1007,12 @@ onBeforeUnmount(() => {
     document.removeEventListener('visibilitychange', handlePresenceVisibility)
   }
   clearUnreadWatchers()
+  clearNotificationWatchers()
 })
 
 async function signOut() {
   clearUnreadWatchers()
+  clearNotificationWatchers()
   try {
     await $fetch('/api/chat/presence/offline', { method: 'POST' })
   } catch {
@@ -585,5 +1060,39 @@ async function exitOnBehalf() {
   min-width: 20px;
   height: 20px;
   border-radius: 999px;
+}
+
+.app-notification-badge :deep(.v-badge__badge) {
+  min-width: 16px;
+  height: 16px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 0 4px;
+  border-radius: 999px;
+}
+
+.app-notification-scroll {
+  overflow-y: auto;
+}
+
+.app-notification-item {
+  cursor: pointer;
+}
+
+.app-notification-item--unread {
+  background: rgba(var(--v-theme-primary), 0.06);
+}
+
+.app-notification-title,
+.app-notification-message {
+  display: block !important;
+  max-height: none !important;
+  white-space: normal !important;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  overflow: visible !important;
+  text-overflow: initial !important;
+  -webkit-line-clamp: unset !important;
+  line-clamp: unset !important;
 }
 </style>

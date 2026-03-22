@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { getProfileOrThrow, requireRoles } from '~/server/utils/auth'
 import { getServiceRoleClient } from '~/server/utils/supabase'
+import { notifyUser } from '~/server/services/notifications/user-notifications'
 
 const bodySchema = z.object({
   status: z.enum(['verified', 'rejected']),
@@ -47,6 +48,49 @@ export default defineEventHandler(async (event) => {
         status: isVerified ? 'confirmed' : 'pending',
       })
       .eq('id', data.order_id)
+
+    if (isVerified) {
+      try {
+        const { data: orderRow } = await supabase
+          .from('orders')
+          .select('id, user_id, source')
+          .eq('id', data.order_id)
+          .maybeSingle()
+        const userId = String((orderRow as any)?.user_id ?? '').trim()
+        const source = String((orderRow as any)?.source ?? '').trim()
+        const isMemberSource = source === 'Member Order'
+        if (isMemberSource && userId) {
+          const { data: recipientProfile } = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', userId)
+            .maybeSingle()
+          const recipientRole = String((recipientProfile as any)?.role ?? '').trim()
+          const invoiceNumber = String((data as any)?.invoice_number ?? '').trim() || String(id)
+          const message = `Your Invoice ${invoiceNumber} was verified to Paid.`
+          await notifyUser(event, {
+            user_id: userId,
+            actor_id: profile.id,
+            kind: 'order_payment_verified',
+            title: 'Payment verified',
+            message,
+            target_url: `/member/orders/${data.order_id}`,
+            payload: {
+              order_id: data.order_id,
+              invoice_number: invoiceNumber,
+            },
+            send_push: recipientRole === 'member',
+            recipient_role: recipientRole === 'member' ? 'member' : null,
+            push_title: 'Payment verified',
+            push_body: message,
+            push_tag: 'payment-verified',
+          })
+        }
+      }
+      catch {
+        // Notification is best-effort and must not block verification.
+      }
+    }
   }
   return data
 })

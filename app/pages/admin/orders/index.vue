@@ -181,6 +181,13 @@
               value-format="iso"
               :emit-on-close="true"
             />
+            <v-text-field
+              v-model="bulkDeliveryName"
+              label="Delivery Name (optional)"
+              variant="outlined"
+              density="comfortable"
+              class="mt-3"
+            />
           </div>
         </v-card-text>
         <v-card-actions>
@@ -219,6 +226,7 @@
 
 <script setup lang="ts">
 definePageMeta({ layout: 'admin', middleware: 'role' })
+setPageLayout('admin')
 
 const { formatPrice } = usePricingFormat()
 const orders = ref<any[]>([])
@@ -236,6 +244,7 @@ const orderDateRange = ref<{ start: string | null, end: string | null }>({ start
 const showBulkStatusDialog = ref(false)
 const bulkStatus = ref<string>('')
 const estimateRange = ref<{ start: string | null, end: string | null }>({ start: null, end: null })
+const bulkDeliveryName = ref('')
 const bulkSaving = ref(false)
 const showDeleteDialog = ref(false)
 const selectedOrder = ref<any | null>(null)
@@ -363,6 +372,7 @@ async function applyBulkStatus() {
             status: bulkStatus.value,
             estimate_delivery_start: bulkStatus.value === 'shipped' ? start : null,
             estimate_delivery_end: bulkStatus.value === 'shipped' ? end : null,
+            delivery_name: bulkStatus.value === 'shipped' ? (bulkDeliveryName.value.trim() || null) : null,
           },
         }),
       ),
@@ -370,6 +380,7 @@ async function applyBulkStatus() {
     showBulkStatusDialog.value = false
     bulkStatus.value = ''
     estimateRange.value = { start: null, end: null }
+    bulkDeliveryName.value = ''
     await load()
   }
   finally {
@@ -453,6 +464,7 @@ watch(showBulkStatusDialog, (open) => {
   if (!open) {
     bulkStatus.value = ''
     estimateRange.value = { start: null, end: null }
+    bulkDeliveryName.value = ''
   }
 })
 

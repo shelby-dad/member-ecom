@@ -6,7 +6,10 @@ import { applyOrderStock } from '~/server/utils/order-stock'
 import { resolvePromotionForOrder } from '~/server/utils/promotions'
 import { generateUniqueOrderNumber } from '~/server/utils/order-number'
 import { generateUniqueInvoiceNumber } from '~/server/utils/invoice-number'
+import { getEventLogger, toErrorObject } from '~/server/utils/logger'
 import { enforceRateLimit } from '~/server/utils/rate-limit'
+import { enqueueMemberPurchaseNotifyQueue, processMemberPurchaseNotifyQueue } from '~/server/services/queues/member-purchase-notify-queue'
+import { notifyRoles } from '~/server/services/notifications/user-notifications'
 import {
   aggregateQuantityByVariant,
   aggregateStockByVariant,
@@ -117,6 +120,7 @@ export default defineSafeEventHandler(async (event) => {
   }
   const orderNumber = await generateUniqueOrderNumber(supabase)
   const isWallet = paymentMethod.type === 'wallet'
+  const isBankTransfer = paymentMethod.type === 'bank_transfer'
   const isCod = paymentMethod.type === 'cod'
   const paidAt = isWallet ? new Date().toISOString() : null
 
@@ -126,7 +130,7 @@ export default defineSafeEventHandler(async (event) => {
       order_number: orderNumber,
       user_id: profile.id,
       source: 'Member Order',
-      status: isWallet ? 'confirmed' : 'pending',
+      status: isWallet ? 'confirmed' : isBankTransfer ? 'processing' : 'pending',
       payment_status: isWallet ? 'paid' : 'pending',
       paid_at: paidAt,
       payment_method_type: paymentMethod.type,
@@ -191,6 +195,29 @@ export default defineSafeEventHandler(async (event) => {
     throw createError({ statusCode: 500, message: submissionError.message })
   }
 
+  if (String(order.source ?? '') === 'Member Order') {
+    try {
+      await enqueueMemberPurchaseNotifyQueue(event, { order_id: String(order.id) })
+      void processMemberPurchaseNotifyQueue(event, { limit: 5 }).catch((error) => {
+        const logger = getEventLogger(event)
+        logger.error({
+          event: 'member_purchase_queue.best_effort_failed',
+          error: toErrorObject(error),
+          order_id: order.id,
+          actor_id: profile.id,
+        }, 'Best-effort member purchase queue processing failed')
+      })
+    } catch (error) {
+      const logger = getEventLogger(event)
+      logger.warn({
+        event: 'member_purchase_queue.enqueue_failed',
+        error: toErrorObject(error),
+        order_id: order.id,
+        actor_id: profile.id,
+      }, 'Failed to enqueue member purchase notification')
+    }
+  }
+
   if (isWallet) {
     const { data: walletSnapshot, error: walletSnapshotError } = await supabase
       .from('profiles')
@@ -216,6 +243,45 @@ export default defineSafeEventHandler(async (event) => {
       await supabase.from('orders').delete().eq('id', order.id)
       throw createError({ statusCode: 500, message: walletUpdateError.message })
     }
+  }
+
+  try {
+    const { data: memberRow } = await supabase
+      .from('profiles')
+      .select('full_name')
+      .eq('id', profile.id)
+      .maybeSingle()
+    const memberName = String((memberRow as any)?.full_name ?? '').trim() || 'Member'
+    const orderNumber = String((order as any)?.order_number ?? '').trim()
+    const message = orderNumber ? `Order was ordered (${orderNumber}).` : 'Order was ordered.'
+    const title = `${memberName} order`
+    await notifyRoles(event, {
+      roles: ['superadmin', 'admin', 'staff'],
+      actor_id: profile.id,
+      kind: 'member_order_created',
+      title,
+      message,
+      target_url: `/admin/orders/${order.id}`,
+      payload: {
+        order_id: order.id,
+        order_number: orderNumber || null,
+        member_id: profile.id,
+        member_name: memberName,
+      },
+      send_push: true,
+      push_title: title,
+      push_body: message,
+      push_tag: 'member-order-created',
+    })
+  }
+  catch (error) {
+    const logger = getEventLogger(event)
+    logger.warn({
+      event: 'member_order_notification.emit_failed',
+      error: toErrorObject(error),
+      order_id: order.id,
+      actor_id: profile.id,
+    }, 'Failed to emit member order notification')
   }
 
   return { ...order, items: orderItems }

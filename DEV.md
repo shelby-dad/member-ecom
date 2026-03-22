@@ -40,6 +40,7 @@ This document defines engineering standards for production-grade delivery in thi
 - Use parameterized Supabase filters; avoid dynamic SQL strings unless escaped.
 - Apply endpoint-level rate limits for sensitive APIs (auth resolution, checkout, payment submission).
 - Use centralized API error normalization (`defineSafeEventHandler`) for consistent and safe error payloads.
+- Never log raw secrets, credentials, or tokens.
 
 ## 5) Performance Rules
 
@@ -73,6 +74,20 @@ This document defines engineering standards for production-grade delivery in thi
 - Do not duplicate formatting/business logic across pages.
 - Keep scripts discoverable in `package.json`.
 - Keep docs updated when behavior or commands change.
+
+## 7.1) Logging Rules (Production)
+
+- Server logs must be structured JSON via `pino`.
+- Every request must include/request-propagate `x-request-id`.
+- Request lifecycle logs are required:
+  - `request.start`
+  - `request.finish` or `request.close`
+- Unhandled server errors must be captured by Nitro error hook.
+- Sensitive values must be redacted:
+  - authorization/cookie headers
+  - passwords/tokens/secrets
+  - SMTP encrypted parts (`smtp_password_iv`, `smtp_password_content`)
+- Use `event.context.logger` (or helper wrappers) instead of `console.*` in server code.
 
 ## 8) Pull Request Checklist
 
@@ -139,9 +154,8 @@ This document defines engineering standards for production-grade delivery in thi
 - CI test job now runs:
   - `pnpm test:coverage`
 - Coverage thresholds are enforced in `vitest.config.ts`.
-- Edge-function critical crypto path is regression-tested in:
+- SMTP crypto iv/content handling is regression-tested in:
   - `app/tests/utils/secret-crypto.test.ts`
-  - includes app encrypt -> edge decrypt compatibility coverage.
 
 ## 14) Latest Implementation Notes (March 20, 2026)
 
@@ -160,13 +174,12 @@ This document defines engineering standards for production-grade delivery in thi
   - chat supports image attachments for both member and operator; message payload may be text-only, file-only (`sent a file`), or text+file.
   - operator attachment selection uses Storage Explorer; member attachment uses local picker with preview before send.
   - notification preview for attachment messages must be `sent a file` for consistency across inbox and push alerts.
-- Supabase function layer rule:
-  - new edge functions must live under root `functions/` (standalone app) with `_shared` utilities for logger/env/crypto.
-  - use Node `22.14.0` from `functions/.nvmrc`; do not couple function tooling to main app package.
-  - deployment must be scriptable per environment using `functions/.env.<env>` files and `functions/scripts/deploy-function.sh`.
-  - `supabase/functions/` is a generated sync target for CLI only; do not edit it directly.
-  - internal trigger endpoints must not rely on public JWT; use explicit bearer secret validation.
+- Nuxt notification queue rule:
+  - user-created notifications must be trigger -> queue -> server processor (non-blocking).
+  - queue jobs live in `public.internal_job_queue` and must support retry/backoff and failure terminal state.
+  - processing logic must stay in `app/server/services/queues/*` and `app/server/services/notifications/*`.
+  - any internal processing endpoint must require explicit token guard (`INTERNAL_QUEUE_TOKEN`).
 - Email template orchestration rule:
   - `email_templates` table is system-managed and non-deletable.
-  - edge functions must load template first; when inactive, skip outbound email.
+  - queue processor must load template first; when inactive, skip outbound email.
   - variable rendering uses explicit `{{variable_name}}` placeholders.
